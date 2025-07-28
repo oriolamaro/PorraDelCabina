@@ -81,21 +81,21 @@ const Partit = mongoose.model("Partit", partitSchema);
 // ───────────────────────────────────────────────────────────
 // MIDDLEWARE D'AUTENTICACIÓ JWT
 // ───────────────────────────────────────────────────────────
-const authMiddleware = (req, res, next) => {
-    const header = req.headers.authorization;
-    if (!header || !header.startsWith("Bearer ")) {
-        return res.status(401).json({ error: "Token no proporcionat." });
-    }
+function authMiddleware(req, res, next) {
+    const authHeader = req.headers["authorization"];
+    if (!authHeader) return res.status(401).send({ error: "No autoritzat" });
 
-    const token = header.split(" ")[1];
+    const token = authHeader.split(" ")[1];
+    if (!token) return res.status(401).send({ error: "Token no trobat" });
+
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
-        req.user = decoded; // req.user.username
+        req.user = decoded;
         next();
-    } catch (error) {
-        return res.status(403).json({ error: "Token invàlid o caducat." });
+    } catch (err) {
+        return res.status(403).send({ error: "Token caducat o invàlid" });
     }
-};
+}
 
 // ───────────────────────────────────────────────────────────
 // AUTENTICACIÓ: REGISTRE I LOGIN
