@@ -1,3 +1,6 @@
+// ───────────────────────────────────────────────────────────
+// IMPORTACIONS
+// ───────────────────────────────────────────────────────────
 const express = require("express");
 const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
@@ -11,7 +14,9 @@ app.use(express.json());
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// Connexió a MongoDB
+// ───────────────────────────────────────────────────────────
+// CONNEXIÓ A MONGO
+// ───────────────────────────────────────────────────────────
 mongoose
     .connect(process.env.MONGO_URL, {
         useNewUrlParser: true,
@@ -20,7 +25,9 @@ mongoose
     .then(() => console.log("✅ Connectat a MongoDB"))
     .catch((err) => console.error("❌ Error de connexió:", err));
 
-// Esquema de l'usuari
+// ───────────────────────────────────────────────────────────
+// MODELS
+// ───────────────────────────────────────────────────────────
 const userSchema = new mongoose.Schema({
     username: { type: String, unique: true, required: true },
     password: { type: String, required: true },
@@ -40,36 +47,73 @@ const userSchema = new mongoose.Schema({
     },
     createdAt: { type: Date, default: Date.now },
 });
-
 const User = mongoose.model("User", userSchema);
 
-// Ruta POST per registrar
+const porraSchema = new mongoose.Schema({
+    titol: { type: String, required: true },
+    opcions: [{ type: String, required: true }],
+    creador: { type: String, required: true },
+    apostat: { type: Number, default: 0 },
+    creatA: { type: Date, default: Date.now },
+});
+const Porra = mongoose.model("Porra", porraSchema);
+
+const quinielaSchema = new mongoose.Schema({
+    titol: { type: String, required: true },
+    partits: [{ type: String, required: true }],
+    creador: { type: String, required: true },
+    apostat: { type: Number, default: 0 },
+    creatA: { type: Date, default: Date.now },
+});
+const Quiniela = mongoose.model("Quiniela", quinielaSchema);
+
+const partitSchema = new mongoose.Schema({
+    equipA: { type: String, required: true },
+    equipB: { type: String, required: true },
+    empatPermes: { type: Boolean, default: true },
+    opcions: [{ type: String, required: true }],
+    creador: { type: String, required: true },
+    apostat: { type: Number, default: 0 },
+    creatA: { type: Date, default: Date.now },
+});
+const Partit = mongoose.model("Partit", partitSchema);
+
+// ───────────────────────────────────────────────────────────
+// MIDDLEWARE D'AUTENTICACIÓ JWT
+// ───────────────────────────────────────────────────────────
+const authMiddleware = (req, res, next) => {
+    const header = req.headers.authorization;
+    if (!header || !header.startsWith("Bearer ")) {
+        return res.status(401).json({ error: "Token no proporcionat." });
+    }
+
+    const token = header.split(" ")[1];
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        req.user = decoded; // req.user.username
+        next();
+    } catch (error) {
+        return res.status(403).json({ error: "Token invàlid o caducat." });
+    }
+};
+
+// ───────────────────────────────────────────────────────────
+// AUTENTICACIÓ: REGISTRE I LOGIN
+// ───────────────────────────────────────────────────────────
 app.post("/register", async (req, res) => {
     try {
         const { username, password, email, birthDate } = req.body;
-
         if (!username || !password || !email || !birthDate)
-            return res.status(400).send({
-                errorCode: "MISSING_FIELDS",
-                error: "Falten camps obligatoris.",
-            });
+            return res.status(400).json({ error: "Falten camps obligatoris." });
 
-        // Comprovem si l'usuari ja existeix
         const existingUsername = await User.findOne({ username });
         if (existingUsername)
-            return res.status(400).send({
-                errorCode: "USERNAME_EXISTS",
-                error: "Aquest nom d'usuari ja existeix.",
-            });
+            return res.status(400).json({ error: "Nom d'usuari ja existeix." });
 
         const existingEmail = await User.findOne({ email });
         if (existingEmail)
-            return res.status(400).send({
-                errorCode: "EMAIL_EXISTS",
-                error: "Aquest correu ja està registrat.",
-            });
+            return res.status(400).json({ error: "Email ja registrat." });
 
-        // Comprovació d'edat
         const birth = new Date(birthDate);
         const today = new Date();
         const age =
@@ -79,78 +123,120 @@ app.post("/register", async (req, res) => {
             new Date(today.getFullYear(), birth.getMonth(), birth.getDate())
                 ? 1
                 : 0);
+        if (age < 18)
+            return res
+                .status(403)
+                .json({ error: "Has de tenir 18 anys o més." });
 
-        if (age < 18) {
-            return res.status(403).send({
-                errorCode: "UNDERAGE",
-                error: "Has de tenir 18 anys o més.",
-            });
-        }
-
-        // Xifrem la contrasenya
         const hashedPassword = await bcrypt.hash(password, 10);
-
-        // Creem i guardem el nou usuari
         const user = new User({
             username,
             password: hashedPassword,
             email,
-            birthDate: new Date(birthDate),
+            birthDate,
         });
-
         await user.save();
 
-        res.status(201).send({ message: "Usuari registrat correctament." });
-    } catch (error) {
-        console.error("❌ Error durant registre:", error);
-        res.status(500).send({
-            errorCode: "SERVER_ERROR",
-            error: "Error intern del servidor.",
-        });
+        res.status(201).json({ message: "Usuari registrat correctament." });
+    } catch (err) {
+        console.error("❌ Error registre:", err);
+        res.status(500).json({ error: "Error intern del servidor." });
     }
 });
 
-// Ruta POST per login
 app.post("/login", async (req, res) => {
     try {
         const { username, password } = req.body;
-
         if (!username || !password)
-            return res.status(400).send({
-                errorCode: "MISSING_FIELDS",
-                error: "Falten camps obligatoris.",
-            });
+            return res.status(400).json({ error: "Falten camps obligatoris." });
 
         const user = await User.findOne({ username });
-        if (!user)
-            return res.status(401).send({
-                errorCode: "USER_NOT_FOUND",
-                error: "Usuari no trobat.",
-            });
+        if (!user) return res.status(401).json({ error: "Usuari no trobat." });
 
-        const validPassword = await bcrypt.compare(password, user.password);
-        if (!validPassword)
-            return res.status(401).send({
-                errorCode: "INVALID_PASSWORD",
-                error: "Contrasenya incorrecta.",
-            });
+        const valid = await bcrypt.compare(password, user.password);
+        if (!valid)
+            return res.status(401).json({ error: "Contrasenya incorrecta." });
 
-        const token = jwt.sign({ username }, JWT_SECRET, {
+        const token = jwt.sign({ username: user.username }, JWT_SECRET, {
             expiresIn: "1h",
         });
-
-        res.send({
-            token,
-            username: user.username,
-            role: user.role, // 👈 Afegeix el rol aquí
-        });
-    } catch (error) {
-        console.error("❌ Error durant login:", error);
-        res.status(500).send({
-            errorCode: "SERVER_ERROR",
-            error: "Error intern del servidor.",
-        });
+        res.json({ token, username: user.username, role: user.role });
+    } catch (err) {
+        console.error("❌ Error login:", err);
+        res.status(500).json({ error: "Error intern del servidor." });
     }
 });
 
+// ───────────────────────────────────────────────────────────
+// RUTES PROTEGIDES PER CREAR APOSTES
+// ───────────────────────────────────────────────────────────
+app.post("/porres/afegir", authMiddleware, async (req, res) => {
+    try {
+        const { titol, opcions } = req.body;
+        if (!titol || !Array.isArray(opcions) || opcions.length < 2)
+            return res
+                .status(400)
+                .json({ error: "Títol i mínim dues opcions requerides." });
+
+        const novaPorra = new Porra({
+            titol,
+            opcions,
+            creador: req.user.username,
+        });
+        await novaPorra.save();
+        res.status(201).json({ message: "Porra creada." });
+    } catch (err) {
+        console.error("❌ Error creant porra:", err);
+        res.status(500).json({ error: "Error intern." });
+    }
+});
+
+app.post("/quinieles/afegir", authMiddleware, async (req, res) => {
+    try {
+        const { titol, partits } = req.body;
+        if (!titol || !Array.isArray(partits) || partits.length < 1)
+            return res
+                .status(400)
+                .json({ error: "Títol i mínim un partit requerits." });
+
+        const novaQuiniela = new Quiniela({
+            titol,
+            partits,
+            creador: req.user.username,
+        });
+        await novaQuiniela.save();
+        res.status(201).json({ message: "Quiniela creada." });
+    } catch (err) {
+        console.error("❌ Error creant quiniela:", err);
+        res.status(500).json({ error: "Error intern." });
+    }
+});
+
+app.post("/partits/afegir", authMiddleware, async (req, res) => {
+    try {
+        const { equipA, equipB, empatPermes, opcions } = req.body;
+        if (!equipA || !equipB || !Array.isArray(opcions) || opcions.length < 2)
+            return res
+                .status(400)
+                .json({ error: "Equips i opcions requerits." });
+
+        const nouPartit = new Partit({
+            equipA,
+            equipB,
+            empatPermes: empatPermes ?? true,
+            opcions,
+            creador: req.user.username,
+        });
+
+        await nouPartit.save();
+        res.status(201).json({ message: "Partit creat." });
+    } catch (err) {
+        console.error("❌ Error creant partit:", err);
+        res.status(500).json({ error: "Error intern." });
+    }
+});
+
+// ───────────────────────────────────────────────────────────
+// INICI SERVIDOR
+// ───────────────────────────────────────────────────────────
 app.listen(3000, () => console.log("🌐 Servidor escoltant al port 3000"));
