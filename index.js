@@ -168,6 +168,39 @@ app.post("/login", async (req, res) => {
 });
 
 // ───────────────────────────────────────────────────────────
+// ACCEDIR A APOSTES
+// ───────────────────────────────────────────────────────────
+app.get("quinieles/mostrar", async (req, res) => {
+    try {
+        const totesLesQuinieles = await Quiniela.find();
+        res.json(totesLesQuinieles);
+    } catch (err) {
+        console.error("Error obtinguent les quinieles: ", err);
+        res.status(500).json({ error: "Error intern." });
+    }
+});
+
+app.get("porres/mostrar", async (req, res) => {
+    try {
+        const totesLesPorres = await Porra.find();
+        res.json(totesLesPorres);
+    } catch (err) {
+        console.error("Error obtinguent les porres: ", err);
+        res.status(500).json({ error: "Error intern." });
+    }
+});
+
+app.get("partits/mostrar", async (req, res) => {
+    try {
+        const totsElsPartits = await Partit.find();
+        res.json(totsElsPartits);
+    } catch (err) {
+        console.error("Error obtinguent els partits: ", err);
+        res.status(500).json({ error: "Error intern." });
+    }
+});
+
+// ───────────────────────────────────────────────────────────
 // RUTES PROTEGIDES PER CREAR APOSTES
 // ───────────────────────────────────────────────────────────
 app.post("/porres/afegir", authMiddleware, async (req, res) => {
@@ -197,7 +230,7 @@ app.post("/quinieles/afegir", authMiddleware, async (req, res) => {
         if (!titol || !Array.isArray(partits) || partits.length < 1)
             return res
                 .status(400)
-                .json({ error: "Títol i mínim un partit requerits." });
+                .json({ error: "Títol i mínim cinc partits requerits." });
 
         const novaQuiniela = new Quiniela({
             titol,
