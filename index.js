@@ -170,7 +170,7 @@ app.post("/login", async (req, res) => {
 // ───────────────────────────────────────────────────────────
 // ACCEDIR A APOSTES
 // ───────────────────────────────────────────────────────────
-app.get("quinieles/mostrar", async (req, res) => {
+app.get("/quinieles/mostrar", async (req, res) => {
     try {
         const totesLesQuinieles = await Quiniela.find();
         res.json(totesLesQuinieles);
@@ -180,7 +180,7 @@ app.get("quinieles/mostrar", async (req, res) => {
     }
 });
 
-app.get("porres/mostrar", async (req, res) => {
+app.get("/porres/mostrar", async (req, res) => {
     try {
         const totesLesPorres = await Porra.find();
         res.json(totesLesPorres);
@@ -190,7 +190,7 @@ app.get("porres/mostrar", async (req, res) => {
     }
 });
 
-app.get("partits/mostrar", async (req, res) => {
+app.get("/partits/mostrar", async (req, res) => {
     try {
         const totsElsPartits = await Partit.find();
         res.json(totsElsPartits);
