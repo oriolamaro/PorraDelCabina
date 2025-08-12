@@ -58,14 +58,14 @@ const porraSchema = new mongoose.Schema({
 });
 const Porra = mongoose.model("Porra", porraSchema);
 
-const partitSimpleSchema = new mongoose.Schema({
-    equipA: { type: String, required: true },
-    equipB: { type: String, required: true },
-});
-
 const quinielaSchema = new mongoose.Schema({
     titol: { type: String, required: true },
-    partits: { type: [partitSimpleSchema], required: true }, // ara és array d'objectes
+    partits: [
+        {
+            equipA: { type: String, required: true },
+            equipB: { type: String, required: true },
+        },
+    ],
     creador: { type: String, required: true },
     apostat: { type: Number, default: 0 },
     creatA: { type: Date, default: Date.now },
