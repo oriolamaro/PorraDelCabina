@@ -239,23 +239,6 @@ app.post("/quinieles/afegir", authMiddleware, async (req, res) => {
                 .json({ error: "Títol i mínim un partit requerits." });
         }
 
-        for (const [index, p] of partits.entries()) {
-            if (
-                typeof p !== "object" ||
-                p === null ||
-                !("equipA" in p) ||
-                !("equipB" in p) ||
-                typeof p.equipA !== "string" ||
-                p.equipA.trim() === "" ||
-                typeof p.equipB !== "string" ||
-                p.equipB.trim() === ""
-            ) {
-                return res.status(400).json({
-                    error: `El partit a la posició ${index} ha de tenir equipA i equipB com a text no buit.`,
-                });
-            }
-        }
-
         const novaQuiniela = new Quiniela({
             titol,
             partits,
