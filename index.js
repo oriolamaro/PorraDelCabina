@@ -58,9 +58,14 @@ const porraSchema = new mongoose.Schema({
 });
 const Porra = mongoose.model("Porra", porraSchema);
 
+const partitSimpleSchema = new mongoose.Schema({
+    equipA: { type: String, required: true },
+    equipB: { type: String, required: true },
+});
+
 const quinielaSchema = new mongoose.Schema({
     titol: { type: String, required: true },
-    partits: [{ type: String, required: true }],
+    partits: { type: [partitSimpleSchema], required: true }, // ara és array d'objectes
     creador: { type: String, required: true },
     apostat: { type: Number, default: 0 },
     creatA: { type: Date, default: Date.now },
@@ -170,7 +175,7 @@ app.post("/login", async (req, res) => {
 // ───────────────────────────────────────────────────────────
 // ACCEDIR A APOSTES
 // ───────────────────────────────────────────────────────────
-app.get("/quinieles/mostrar", async (req, res) => {
+app.get("quinieles/mostrar", async (req, res) => {
     try {
         const totesLesQuinieles = await Quiniela.find();
         res.json(totesLesQuinieles);
@@ -180,7 +185,7 @@ app.get("/quinieles/mostrar", async (req, res) => {
     }
 });
 
-app.get("/porres/mostrar", async (req, res) => {
+app.get("porres/mostrar", async (req, res) => {
     try {
         const totesLesPorres = await Porra.find();
         res.json(totesLesPorres);
@@ -190,7 +195,7 @@ app.get("/porres/mostrar", async (req, res) => {
     }
 });
 
-app.get("/partits/mostrar", async (req, res) => {
+app.get("partits/mostrar", async (req, res) => {
     try {
         const totsElsPartits = await Partit.find();
         res.json(totsElsPartits);
@@ -230,7 +235,21 @@ app.post("/quinieles/afegir", authMiddleware, async (req, res) => {
         if (!titol || !Array.isArray(partits) || partits.length < 1)
             return res
                 .status(400)
-                .json({ error: "Títol i mínim cinc partits requerits." });
+                .json({ error: "Títol i mínim un partit requerits." });
+
+        for (const p of partits) {
+            if (
+                typeof p !== "object" ||
+                !p.equipA ||
+                !p.equipB ||
+                typeof p.equipA !== "string" ||
+                typeof p.equipB !== "string"
+            ) {
+                return res.status(400).json({
+                    error: "Cada partit ha de tenir equip A i equip B de tipus text.",
+                });
+            }
+        }
 
         const novaQuiniela = new Quiniela({
             titol,
