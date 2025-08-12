@@ -229,7 +229,7 @@ app.post("/porres/afegir", authMiddleware, async (req, res) => {
     }
 });
 
-aapp.post("/quinieles/afegir", authMiddleware, async (req, res) => {
+app.post("/quinieles/afegir", authMiddleware, async (req, res) => {
     try {
         const { titol, partits } = req.body;
 
