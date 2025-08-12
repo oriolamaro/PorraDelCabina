@@ -229,24 +229,29 @@ app.post("/porres/afegir", authMiddleware, async (req, res) => {
     }
 });
 
-app.post("/quinieles/afegir", authMiddleware, async (req, res) => {
+aapp.post("/quinieles/afegir", authMiddleware, async (req, res) => {
     try {
         const { titol, partits } = req.body;
-        if (!titol || !Array.isArray(partits) || partits.length < 1)
+
+        if (!titol || !Array.isArray(partits) || partits.length < 1) {
             return res
                 .status(400)
                 .json({ error: "Títol i mínim un partit requerits." });
+        }
 
-        for (const p of partits) {
+        for (const [index, p] of partits.entries()) {
             if (
                 typeof p !== "object" ||
-                !p.equipA ||
-                !p.equipB ||
+                p === null ||
+                !("equipA" in p) ||
+                !("equipB" in p) ||
                 typeof p.equipA !== "string" ||
-                typeof p.equipB !== "string"
+                p.equipA.trim() === "" ||
+                typeof p.equipB !== "string" ||
+                p.equipB.trim() === ""
             ) {
                 return res.status(400).json({
-                    error: "Cada partit ha de tenir equip A i equip B de tipus text.",
+                    error: `El partit a la posició ${index} ha de tenir equipA i equipB com a text no buit.`,
                 });
             }
         }
