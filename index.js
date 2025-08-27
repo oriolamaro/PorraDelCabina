@@ -28,6 +28,19 @@ mongoose
 // ───────────────────────────────────────────────────────────
 // MODELS
 // ───────────────────────────────────────────────────────────
+const apostaSchema = new mongoose.Schema({
+    apostaId: { type: mongoose.Schema.Types.ObjectId, required: true },
+    tipus: {
+        type: String,
+        enum: ["porra", "quiniela", "partit"],
+        required: true,
+    },
+    titol: { type: String, required: true },
+    seleccio: { type: String, required: true },
+    diners: { type: Number, required: true },
+    data: { type: Date, default: Date.now },
+});
+
 const userSchema = new mongoose.Schema({
     username: { type: String, unique: true, required: true },
     password: { type: String, required: true },
@@ -46,18 +59,31 @@ const userSchema = new mongoose.Schema({
         default: "none",
     },
     createdAt: { type: Date, default: Date.now },
+    apostes: [apostaSchema], // 👈 totes les apostes del jugador
 });
 const User = mongoose.model("User", userSchema);
 
+const participantPorraSchema = new mongoose.Schema({
+    userId: { type: mongoose.Schema.Types.ObjectId, required: true },
+    username: { type: String, required: true },
+    seleccio: { type: String, required: true },
+    diners: { type: Number, required: true },
+});
 const porraSchema = new mongoose.Schema({
     titol: { type: String, required: true },
     opcions: [{ type: String, required: true }],
     creador: { type: String, required: true },
     apostat: { type: Number, default: 0 },
+    participants: [participantPorraSchema],
     creatA: { type: Date, default: Date.now },
 });
 const Porra = mongoose.model("Porra", porraSchema);
 
+const participantQuinielaSchema = new mongoose.Schema({
+    userId: { type: mongoose.Schema.Types.ObjectId, required: true },
+    username: { type: String, required: true },
+    seleccio: { type: String, required: true },
+});
 const quinielaSchema = new mongoose.Schema({
     titol: { type: String, required: true },
     partits: [
@@ -68,10 +94,17 @@ const quinielaSchema = new mongoose.Schema({
     ],
     creador: { type: String, required: true },
     apostat: { type: Number, default: 0 },
+    participants: [participantQuinielaSchema],
     creatA: { type: Date, default: Date.now },
 });
 const Quiniela = mongoose.model("Quiniela", quinielaSchema);
 
+const participantPartitSchema = new mongoose.Schema({
+    userId: { type: mongoose.Schema.Types.ObjectId, required: true },
+    username: { type: String, required: true },
+    seleccio: { type: String, required: true },
+    diners: { type: Number, required: true },
+});
 const partitSchema = new mongoose.Schema({
     equipA: { type: String, required: true },
     equipB: { type: String, required: true },
@@ -79,6 +112,7 @@ const partitSchema = new mongoose.Schema({
     opcions: [{ type: String, required: true }],
     creador: { type: String, required: true },
     apostat: { type: Number, default: 0 },
+    participants: [participantPartitSchema],
     creatA: { type: Date, default: Date.now },
 });
 const Partit = mongoose.model("Partit", partitSchema);
@@ -139,7 +173,9 @@ app.post("/register", async (req, res) => {
             password: hashedPassword,
             email,
             birthDate,
+            apostes: [],
         });
+
         await user.save();
 
         res.status(201).json({ message: "Usuari registrat correctament." });
@@ -220,6 +256,7 @@ app.post("/porres/afegir", authMiddleware, async (req, res) => {
             titol,
             opcions,
             creador: req.user.username,
+            participants: [],
         });
         await novaPorra.save();
         res.status(201).json({ message: "Porra creada." });
@@ -233,16 +270,38 @@ app.post("/quinieles/afegir", authMiddleware, async (req, res) => {
     try {
         const { titol, partits } = req.body;
 
-        if (!titol || !Array.isArray(partits) || partits.length < 1) {
+        const partitsValids = partits.filter(
+            (p) => p?.equipA?.trim() && p?.equipB?.trim()
+        );
+
+        if (partitsValids.length < 4) {
             return res
                 .status(400)
-                .json({ error: "Títol i mínim un partit requerits." });
+                .json({ error: "Mínim quatre partits vàlids requerits." });
+        }
+
+        for (const [index, p] of partits.entries()) {
+            if (
+                typeof p !== "object" ||
+                p === null ||
+                !("equipA" in p) ||
+                !("equipB" in p) ||
+                typeof p.equipA !== "string" ||
+                p.equipA.trim() === "" ||
+                typeof p.equipB !== "string" ||
+                p.equipB.trim() === ""
+            ) {
+                return res.status(400).json({
+                    error: `El partit a la posició ${index} ha de tenir equipA i equipB com a text no buit.`,
+                });
+            }
         }
 
         const novaQuiniela = new Quiniela({
             titol,
-            partits,
+            partits: partitsValids,
             creador: req.user.username,
+            participants: [],
         });
         await novaQuiniela.save();
         res.status(201).json({ message: "Quiniela creada." });
@@ -266,6 +325,7 @@ app.post("/partits/afegir", authMiddleware, async (req, res) => {
             empatPermes: empatPermes ?? true,
             opcions,
             creador: req.user.username,
+            participants: [], // 👈 afegit
         });
 
         await nouPartit.save();
@@ -273,6 +333,79 @@ app.post("/partits/afegir", authMiddleware, async (req, res) => {
     } catch (err) {
         console.error("❌ Error creant partit:", err);
         res.status(500).json({ error: "Error intern." });
+    }
+});
+
+// ───────────────────────────────────────────────────────────
+// RUTA PROTEGIDA PER APOSTAR
+// ───────────────────────────────────────────────────────────
+app.post("/aposta", authMiddleware, async (req, res) => {
+    try {
+        const { apostaId, tipus, seleccio, diners } = req.body;
+        const userId = req.user.id; // ve del token
+
+        if (!apostaId || !tipus || !seleccio || !diners) {
+            return res.status(400).json({ error: "Falten camps obligatoris." });
+        }
+
+        if (typeof diners !== "number" || diners <= 0) {
+            return res
+                .status(400)
+                .json({ error: "Quantitat de diners no vàlida." });
+        }
+
+        // 🔎 Buscar usuari
+        const user = await User.findById(userId);
+        if (!user) return res.status(404).json({ error: "Usuari no trobat." });
+
+        if (user.walletBalance < diners) {
+            return res.status(403).json({ error: "Saldo insuficient." });
+        }
+
+        // 🔎 Seleccionar model segons tipus
+        let ApostaModel;
+        if (tipus === "porra") ApostaModel = Porra;
+        else if (tipus === "quiniela") ApostaModel = Quiniela;
+        else if (tipus === "partit") ApostaModel = Partit;
+        else return res.status(400).json({ error: "Tipus d'aposta no vàlid." });
+
+        // 🔎 Buscar aposta
+        const aposta = await ApostaModel.findById(apostaId);
+        if (!aposta)
+            return res.status(404).json({ error: "Aposta no trobada." });
+
+        // 💰 Restar diners al jugador
+        user.walletBalance -= diners;
+
+        // 📌 Guardar aposta dins de l'usuari
+        user.apostes = user.apostes || [];
+        user.apostes.push({
+            apostaId: aposta._id,
+            tipus,
+            titol: aposta.titol,
+            seleccio,
+            diners,
+            data: new Date(),
+        });
+        await user.save();
+
+        // 📌 Guardar participant dins de l'aposta
+        aposta.participants = aposta.participants || [];
+        aposta.participants.push({
+            userId: user._id,
+            username: user.username,
+            seleccio,
+            diners,
+        });
+        await aposta.save();
+
+        res.status(201).json({
+            message: "✅ Aposta registrada correctament.",
+            walletBalance: user.walletBalance,
+        });
+    } catch (err) {
+        console.error("❌ Error /aposta:", err);
+        res.status(500).json({ error: "Error intern del servidor." });
     }
 });
 
