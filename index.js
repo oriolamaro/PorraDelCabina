@@ -198,9 +198,15 @@ app.post("/login", async (req, res) => {
         if (!valid)
             return res.status(401).json({ error: "Contrasenya incorrecta." });
 
-        const token = jwt.sign({ username: user.username }, JWT_SECRET, {
-            expiresIn: "1h",
-        });
+        const token = jwt.sign(
+            {
+                id: user._id.toString(),
+                username: user.username,
+                role: user.role,
+            },
+            JWT_SECRET,
+            { expiresIn: "1h" }
+        );
         res.json({ token, username: user.username, role: user.role });
     } catch (err) {
         console.error("❌ Error login:", err);
