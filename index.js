@@ -111,8 +111,8 @@ const partitSchema = new mongoose.Schema({
     empatPermes: { type: Boolean, default: true },
     opcions: [{ type: String, required: true }],
     creador: { type: String, required: true },
+    participants: { type: [participantSchema], default: [] },
     apostat: { type: Number, default: 0 },
-    participants: [participantPartitSchema],
     creatA: { type: Date, default: Date.now },
 });
 const Partit = mongoose.model("Partit", partitSchema);
@@ -348,9 +348,16 @@ app.post("/partits/afegir", authMiddleware, async (req, res) => {
 app.post("/aposta", authMiddleware, async (req, res) => {
     try {
         const { apostaId, tipus, seleccio, diners } = req.body;
-        const userId = req.user.id; // ve del token
+        const userId = req.user.id; // ve del token (veure login)
 
-        if (!apostaId || !tipus || !seleccio || !diners) {
+        // camps obligatoris
+        if (
+            !apostaId ||
+            !tipus ||
+            seleccio === undefined ||
+            seleccio === null ||
+            diners === undefined
+        ) {
             return res.status(400).json({ error: "Falten camps obligatoris." });
         }
 
@@ -360,7 +367,7 @@ app.post("/aposta", authMiddleware, async (req, res) => {
                 .json({ error: "Quantitat de diners no vàlida." });
         }
 
-        // 🔎 Buscar usuari
+        // buscar usuari
         const user = await User.findById(userId);
         if (!user) return res.status(404).json({ error: "Usuari no trobat." });
 
@@ -368,28 +375,150 @@ app.post("/aposta", authMiddleware, async (req, res) => {
             return res.status(403).json({ error: "Saldo insuficient." });
         }
 
-        // 🔎 Seleccionar model segons tipus
+        // tria model
         let ApostaModel;
         if (tipus === "porra") ApostaModel = Porra;
         else if (tipus === "quiniela") ApostaModel = Quiniela;
         else if (tipus === "partit") ApostaModel = Partit;
         else return res.status(400).json({ error: "Tipus d'aposta no vàlid." });
 
-        // 🔎 Buscar aposta
+        // buscar aposta
         const aposta = await ApostaModel.findById(apostaId);
         if (!aposta)
             return res.status(404).json({ error: "Aposta no trobada." });
 
+        // Normalitzem i validem selecció segons tipus
+        let seleccioText = null;
+
+        if (tipus === "porra") {
+            // porra.opcions -> array de strings
+            const opcionsArr = aposta.opcions || [];
+            if (typeof seleccio === "number") {
+                if (seleccio < 0 || seleccio >= opcionsArr.length) {
+                    return res
+                        .status(400)
+                        .json({ error: "Selecció de porra fora de rang." });
+                }
+                seleccioText = opcionsArr[seleccio];
+            } else if (typeof seleccio === "string") {
+                // si s'envia "0"/"1" etc
+                const maybeIdx = parseInt(seleccio, 10);
+                if (
+                    !isNaN(maybeIdx) &&
+                    maybeIdx >= 0 &&
+                    maybeIdx < opcionsArr.length
+                ) {
+                    seleccioText = opcionsArr[maybeIdx];
+                } else {
+                    // acceptem també la string exacta si existeix
+                    const idx = opcionsArr.indexOf(seleccio);
+                    if (idx >= 0) seleccioText = opcionsArr[idx];
+                    else seleccioText = seleccio; // acceptem text lliure (no ideal, però no trenca)
+                }
+            } else {
+                return res
+                    .status(400)
+                    .json({ error: "Selecció no vàlida per porra." });
+            }
+        } else if (tipus === "partit") {
+            // Partit → acceptem 0/1/2 o textes equipA/equipB/"Empat"
+            const equipA = aposta.equipA;
+            const equipB = aposta.equipB;
+            const empatPermes = !!aposta.empatPermes;
+
+            if (typeof seleccio === "number") {
+                if (seleccio === 0) seleccioText = equipA;
+                else if (seleccio === 1) {
+                    if (!empatPermes)
+                        return res
+                            .status(400)
+                            .json({
+                                error: "Empat no permès per aquest partit.",
+                            });
+                    seleccioText = "Empat";
+                } else if (seleccio === 2) seleccioText = equipB;
+                else
+                    return res
+                        .status(400)
+                        .json({ error: "Selecció de partit no vàlida." });
+            } else if (typeof seleccio === "string") {
+                const s = seleccio.trim();
+                if (s.toLowerCase() === "empat" || s === "Empat") {
+                    if (!empatPermes)
+                        return res
+                            .status(400)
+                            .json({
+                                error: "Empat no permès per aquest partit.",
+                            });
+                    seleccioText = "Empat";
+                } else if (s === equipA || s === equipB) {
+                    seleccioText = s;
+                } else {
+                    const maybeIdx = parseInt(s, 10);
+                    if (!isNaN(maybeIdx)) {
+                        // rerun number logic
+                        if (maybeIdx === 0) seleccioText = equipA;
+                        else if (maybeIdx === 1) {
+                            if (!empatPermes)
+                                return res
+                                    .status(400)
+                                    .json({
+                                        error: "Empat no permès per aquest partit.",
+                                    });
+                            seleccioText = "Empat";
+                        } else if (maybeIdx === 2) seleccioText = equipB;
+                        else
+                            return res
+                                .status(400)
+                                .json({
+                                    error: "Selecció de partit no vàlida.",
+                                });
+                    } else {
+                        // no reconegut
+                        return res
+                            .status(400)
+                            .json({ error: "Selecció de partit no vàlida." });
+                    }
+                }
+            } else {
+                return res
+                    .status(400)
+                    .json({ error: "Selecció no vàlida per partit." });
+            }
+        } else if (tipus === "quiniela") {
+            // Per quiniela acceptem: string (ja format) o array/object amb dades.
+            if (Array.isArray(seleccio) || typeof seleccio === "object") {
+                try {
+                    seleccioText = JSON.stringify(seleccio);
+                } catch (err) {
+                    seleccioText = String(seleccio);
+                }
+            } else {
+                seleccioText = String(seleccio);
+            }
+        }
+
+        // a aquest punt tenim seleccioText com a string
+        if (!seleccioText) {
+            return res
+                .status(400)
+                .json({ error: "No s'ha pogut normalitzar la selecció." });
+        }
+
         // 💰 Restar diners al jugador
         user.walletBalance -= diners;
 
-        // 📌 Guardar aposta dins de l'usuari
+        // 📌 Guardar aposta dins de l'usuari (registre personal)
         user.apostes = user.apostes || [];
         user.apostes.push({
             apostaId: aposta._id,
             tipus,
-            titol: aposta.titol,
-            seleccio,
+            titol:
+                aposta.titol ||
+                (tipus === "partit"
+                    ? `${aposta.equipA} vs ${aposta.equipB}`
+                    : ""),
+            seleccio: seleccioText,
             diners,
             data: new Date(),
         });
@@ -400,7 +529,7 @@ app.post("/aposta", authMiddleware, async (req, res) => {
         aposta.participants.push({
             userId: user._id,
             username: user.username,
-            seleccio,
+            seleccio: seleccioText,
             diners,
         });
         await aposta.save();
