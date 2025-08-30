@@ -111,7 +111,7 @@ const partitSchema = new mongoose.Schema({
     empatPermes: { type: Boolean, default: true },
     opcions: [{ type: String, required: true }],
     creador: { type: String, required: true },
-    participants: { type: [participantSchema], default: [] },
+    participants: { type: [participantPartitSchema], default: [] },
     apostat: { type: Number, default: 0 },
     creatA: { type: Date, default: Date.now },
 });
@@ -430,11 +430,9 @@ app.post("/aposta", authMiddleware, async (req, res) => {
                 if (seleccio === 0) seleccioText = equipA;
                 else if (seleccio === 1) {
                     if (!empatPermes)
-                        return res
-                            .status(400)
-                            .json({
-                                error: "Empat no permès per aquest partit.",
-                            });
+                        return res.status(400).json({
+                            error: "Empat no permès per aquest partit.",
+                        });
                     seleccioText = "Empat";
                 } else if (seleccio === 2) seleccioText = equipB;
                 else
@@ -445,11 +443,9 @@ app.post("/aposta", authMiddleware, async (req, res) => {
                 const s = seleccio.trim();
                 if (s.toLowerCase() === "empat" || s === "Empat") {
                     if (!empatPermes)
-                        return res
-                            .status(400)
-                            .json({
-                                error: "Empat no permès per aquest partit.",
-                            });
+                        return res.status(400).json({
+                            error: "Empat no permès per aquest partit.",
+                        });
                     seleccioText = "Empat";
                 } else if (s === equipA || s === equipB) {
                     seleccioText = s;
@@ -460,19 +456,15 @@ app.post("/aposta", authMiddleware, async (req, res) => {
                         if (maybeIdx === 0) seleccioText = equipA;
                         else if (maybeIdx === 1) {
                             if (!empatPermes)
-                                return res
-                                    .status(400)
-                                    .json({
-                                        error: "Empat no permès per aquest partit.",
-                                    });
+                                return res.status(400).json({
+                                    error: "Empat no permès per aquest partit.",
+                                });
                             seleccioText = "Empat";
                         } else if (maybeIdx === 2) seleccioText = equipB;
                         else
-                            return res
-                                .status(400)
-                                .json({
-                                    error: "Selecció de partit no vàlida.",
-                                });
+                            return res.status(400).json({
+                                error: "Selecció de partit no vàlida.",
+                            });
                     } else {
                         // no reconegut
                         return res
