@@ -416,6 +416,30 @@ app.post("/aposta", authMiddleware, async (req, res) => {
 });
 
 // ───────────────────────────────────────────────────────────
+// INFO USER
+// ───────────────────────────────────────────────────────────
+app.get("/me", authMiddleware, async (req, res) => {
+    try {
+        const userId = req.user.id; // ve del token
+        const user = await User.findById(userId);
+
+        if (!user) {
+            return res.status(404).json({ error: "Usuari no trobat." });
+        }
+
+        res.json({
+            id: user._id,
+            username: user.username,
+            walletBalance: user.walletBalance,
+            apostes: user.apostes || [],
+        });
+    } catch (err) {
+        console.error("❌ Error /me:", err);
+        res.status(500).json({ error: "Error intern del servidor." });
+    }
+});
+
+// ───────────────────────────────────────────────────────────
 // INICI SERVIDOR
 // ───────────────────────────────────────────────────────────
 app.listen(3000, () => console.log("🌐 Servidor escoltant al port 3000"));
