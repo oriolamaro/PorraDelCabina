@@ -581,26 +581,44 @@ app.post("/aposta", authMiddleware, async (req, res) => {
 // ───────────────────────────────────────────────────────────
 app.get("/gestiona", authMiddleware, async (req, res) => {
     try {
-        // com que authMiddleware ja posa req.user.id i req.user.role
+        // ✅ Només organitzadors poden accedir
         if (req.user.role !== "organitzador") {
             return res
                 .status(403)
                 .json({ error: "Accés denegat. No ets organitzador." });
         }
 
-        // busquem l'usuari complet a MongoDB
+        // ✅ Recuperem l'usuari i les seves apostesCreades
         const user = await User.findById(req.user.id).select("apostesCreades");
-
         if (!user) {
             return res.status(404).json({ error: "Usuari no trobat." });
         }
 
-        // si no hi ha apostes creades, que retorni array buit
-        res.json({
-            apostesCreades: user.apostesCreades || [],
+        // ✅ Recuperem les dades completes de cada aposta
+        const apostes = await Porra.find({
+            _id: { $in: user.apostesCreades },
+        }).select("titol opcions participants");
+
+        // ✅ Preparem dades per al frontend
+        const resultat = apostes.map((porra) => {
+            // participants és un array amb { usuariId, seleccio, diners }
+            const totalDiners = porra.participants.reduce(
+                (acc, p) => acc + (p.diners || 0),
+                0
+            );
+
+            return {
+                id: porra._id,
+                titol: porra.titol,
+                opcions: porra.opcions,
+                participants: porra.participants, // ja inclou usuari, selecció i diners
+                totalDiners,
+            };
         });
+
+        res.json({ apostesCreades: resultat });
     } catch (err) {
-        console.error("Error a /gestiona:", err);
+        console.error("❌ Error a /gestiona:", err);
         res.status(500).json({ error: "Error intern del servidor" });
     }
 });
