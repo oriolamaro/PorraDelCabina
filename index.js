@@ -60,6 +60,7 @@ const userSchema = new mongoose.Schema({
     },
     createdAt: { type: Date, default: Date.now },
     apostes: [apostaSchema], // 👈 totes les apostes del jugador
+    apostesCreades: [],
 });
 const User = mongoose.model("User", userSchema);
 
@@ -252,20 +253,38 @@ app.get("/partits/mostrar", async (req, res) => {
 // ───────────────────────────────────────────────────────────
 app.post("/porres/afegir", authMiddleware, async (req, res) => {
     try {
+        if (req.user.role !== "organitzador") {
+            return res
+                .status(403)
+                .json({ error: "Accés denegat. No ets organitzador." });
+        }
+
         const { titol, opcions } = req.body;
-        if (!titol || !Array.isArray(opcions) || opcions.length < 2)
+        if (!titol || !Array.isArray(opcions) || opcions.length < 2) {
             return res
                 .status(400)
                 .json({ error: "Títol i mínim dues opcions requerides." });
+        }
 
+        // 🔹 Crear la nova porra
         const novaPorra = new Porra({
             titol,
             opcions,
-            creador: req.user.username,
+            creador: req.user.username, // o req.user.id si prefereixes
             participants: [],
         });
+
         await novaPorra.save();
-        res.status(201).json({ message: "Porra creada." });
+
+        // 🔹 Afegir l'ID de la porra a "apostesCreades" de l'usuari
+        await User.findByIdAndUpdate(req.user.id, {
+            $push: { apostesCreades: novaPorra._id },
+        });
+
+        res.status(201).json({
+            message: "Porra creada correctament.",
+            porraId: novaPorra._id, // opcional: et retornem l'ID
+        });
     } catch (err) {
         console.error("❌ Error creant porra:", err);
         res.status(500).json({ error: "Error intern." });
@@ -274,6 +293,12 @@ app.post("/porres/afegir", authMiddleware, async (req, res) => {
 
 app.post("/quinieles/afegir", authMiddleware, async (req, res) => {
     try {
+        if (req.user.role !== "organitzador") {
+            return res
+                .status(403)
+                .json({ error: "Accés denegat. No ets organitzador." });
+        }
+
         const { titol, partits } = req.body;
 
         const partitsValids = partits.filter(
@@ -309,7 +334,12 @@ app.post("/quinieles/afegir", authMiddleware, async (req, res) => {
             creador: req.user.username,
             participants: [],
         });
+
         await novaQuiniela.save();
+        await User.findByIdAndUpdate(req.user.id, {
+            $push: { apostesCreades: novaQuiniela._id },
+        });
+
         res.status(201).json({ message: "Quiniela creada." });
     } catch (err) {
         console.error("❌ Error creant quiniela:", err);
@@ -319,6 +349,12 @@ app.post("/quinieles/afegir", authMiddleware, async (req, res) => {
 
 app.post("/partits/afegir", authMiddleware, async (req, res) => {
     try {
+        if (req.user.role !== "organitzador") {
+            return res
+                .status(403)
+                .json({ error: "Accés denegat. No ets organitzador." });
+        }
+
         const { equipA, equipB, empatPermes, opcions } = req.body;
         if (!equipA || !equipB || !Array.isArray(opcions) || opcions.length < 2)
             return res
@@ -335,6 +371,10 @@ app.post("/partits/afegir", authMiddleware, async (req, res) => {
         });
 
         await nouPartit.save();
+        await User.findByIdAndUpdate(req.user.id, {
+            $push: { apostesCreades: nouPartit._id },
+        });
+
         res.status(201).json({ message: "Partit creat." });
     } catch (err) {
         console.error("❌ Error creant partit:", err);
@@ -533,6 +573,35 @@ app.post("/aposta", authMiddleware, async (req, res) => {
     } catch (err) {
         console.error("❌ Error /aposta:", err);
         res.status(500).json({ error: "Error intern del servidor." });
+    }
+});
+
+// ───────────────────────────────────────────────────────────
+// GESTIONAR APOSTES CREADES PER L'ORGANITZADOR
+// ───────────────────────────────────────────────────────────
+app.get("/gestiona", authMiddleware, async (req, res) => {
+    try {
+        // com que authMiddleware ja posa req.user.id i req.user.role
+        if (req.user.role !== "organitzador") {
+            return res
+                .status(403)
+                .json({ error: "Accés denegat. No ets organitzador." });
+        }
+
+        // busquem l'usuari complet a MongoDB
+        const user = await User.findById(req.user.id).select("apostesCreades");
+
+        if (!user) {
+            return res.status(404).json({ error: "Usuari no trobat." });
+        }
+
+        // si no hi ha apostes creades, que retorni array buit
+        res.json({
+            apostesCreades: user.apostesCreades || [],
+        });
+    } catch (err) {
+        console.error("Error a /gestiona:", err);
+        res.status(500).json({ error: "Error intern del servidor" });
     }
 });
 
