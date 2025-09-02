@@ -581,39 +581,75 @@ app.post("/aposta", authMiddleware, async (req, res) => {
 // ───────────────────────────────────────────────────────────
 app.get("/gestiona", authMiddleware, async (req, res) => {
     try {
-        // ✅ Només organitzadors poden accedir
+        // Només organitzadors
         if (req.user.role !== "organitzador") {
             return res
                 .status(403)
                 .json({ error: "Accés denegat. No ets organitzador." });
         }
 
-        // ✅ Recuperem l'usuari i les seves apostesCreades
         const user = await User.findById(req.user.id).select("apostesCreades");
-        if (!user) {
-            return res.status(404).json({ error: "Usuari no trobat." });
-        }
+        if (!user) return res.status(404).json({ error: "Usuari no trobat." });
 
-        // ✅ Recuperem les dades completes de cada aposta
-        const apostes = await Porra.find({
-            _id: { $in: user.apostesCreades },
-        }).select("titol opcions participants");
+        // 🔎 Busquem totes les apostes creades, independentment del tipus
+        const [porres, quinieles, partits] = await Promise.all([
+            Porra.find({ _id: { $in: user.apostesCreades } }).select(
+                "titol opcions participants"
+            ),
+            Quiniela.find({ _id: { $in: user.apostesCreades } }).select(
+                "titol partits participants"
+            ),
+            Partit.find({ _id: { $in: user.apostesCreades } }).select(
+                "equipA equipB opcions participants"
+            ),
+        ]);
 
-        // ✅ Preparem dades per al frontend
-        const resultat = apostes.map((porra) => {
-            // participants és un array amb { usuariId, seleccio, diners }
-            const totalDiners = porra.participants.reduce(
-                (acc, p) => acc + (p.diners || 0),
-                0
-            );
+        const resultat = [];
 
-            return {
-                id: porra._id,
-                titol: porra.titol,
-                opcions: porra.opcions,
-                participants: porra.participants, // ja inclou usuari, selecció i diners
-                totalDiners,
-            };
+        // Porres
+        porres.forEach((p) => {
+            resultat.push({
+                id: p._id,
+                tipus: "porra",
+                titol: p.titol,
+                opcions: p.opcions,
+                participants: p.participants,
+                totalDiners: p.participants.reduce(
+                    (sum, x) => sum + (x.diners || 0),
+                    0
+                ),
+            });
+        });
+
+        // Quinieles
+        quinieles.forEach((q) => {
+            resultat.push({
+                id: q._id,
+                tipus: "quiniela",
+                titol: q.titol,
+                partits: q.partits, // cada partit amb equipA i equipB
+                participants: q.participants,
+                totalDiners: q.participants.reduce(
+                    (sum, x) => sum + (x.diners || 0),
+                    0
+                ),
+            });
+        });
+
+        // Partits
+        partits.forEach((m) => {
+            resultat.push({
+                id: m._id,
+                tipus: "partit",
+                equipA: m.equipA,
+                equipB: m.equipB,
+                opcions: m.opcions,
+                participants: m.participants,
+                totalDiners: m.participants.reduce(
+                    (sum, x) => sum + (x.diners || 0),
+                    0
+                ),
+            });
         });
 
         res.json({ apostesCreades: resultat });
