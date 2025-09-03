@@ -347,10 +347,14 @@ app.post("/partits/afegir", authMiddleware, async (req, res) => {
         }
 
         const { titol, equipA, equipB, empatPermes, opcions } = req.body;
-        if (!equipA || !equipB || !Array.isArray(opcions) || opcions.length < 2)
-            return res
-                .status(400)
-                .json({ error: "Equips i opcions requerits." });
+        if (
+            !titol ||
+            !equipA ||
+            !equipB ||
+            !Array.isArray(opcions) ||
+            opcions.length < 2
+        )
+            return res.status(400).json({ error: "Títol i equips requerits." });
 
         const nouPartit = new Partit({
             titol,
@@ -552,6 +556,7 @@ app.get("/gestiona", authMiddleware, async (req, res) => {
         partits.forEach((m) => {
             resultat.push({
                 id: m._id,
+                titol: m.titol,
                 tipus: "partit",
                 equipA: m.equipA,
                 equipB: m.equipB,
