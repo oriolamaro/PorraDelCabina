@@ -97,6 +97,7 @@ const quinielaSchema = new mongoose.Schema({
 const Quiniela = mongoose.model("Quiniela", quinielaSchema);
 
 const partitSchema = new mongoose.Schema({
+    titol: { type: String, required: true },
     equipA: { type: String, required: true },
     equipB: { type: String, required: true },
     empatPermes: { type: Boolean, default: true },
