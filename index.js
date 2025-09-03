@@ -346,13 +346,14 @@ app.post("/partits/afegir", authMiddleware, async (req, res) => {
                 .json({ error: "Accés denegat. No ets organitzador." });
         }
 
-        const { equipA, equipB, empatPermes, opcions } = req.body;
+        const { titol, equipA, equipB, empatPermes, opcions } = req.body;
         if (!equipA || !equipB || !Array.isArray(opcions) || opcions.length < 2)
             return res
                 .status(400)
                 .json({ error: "Equips i opcions requerits." });
 
         const nouPartit = new Partit({
+            titol: titol,
             equipA,
             equipB,
             empatPermes: empatPermes ?? true,
