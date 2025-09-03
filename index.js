@@ -353,7 +353,7 @@ app.post("/partits/afegir", authMiddleware, async (req, res) => {
                 .json({ error: "Equips i opcions requerits." });
 
         const nouPartit = new Partit({
-            titol: titol,
+            titol,
             equipA,
             equipB,
             empatPermes: empatPermes ?? true,
