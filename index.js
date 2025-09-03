@@ -64,27 +64,23 @@ const userSchema = new mongoose.Schema({
 });
 const User = mongoose.model("User", userSchema);
 
-const participantPorraSchema = new mongoose.Schema({
+const participantSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, required: true },
     username: { type: String, required: true },
     seleccio: { type: String, required: true },
     diners: { type: Number, required: true },
 });
+
 const porraSchema = new mongoose.Schema({
     titol: { type: String, required: true },
     opcions: [{ type: String, required: true }],
     creador: { type: String, required: true },
     apostat: { type: Number, default: 0 },
-    participants: [participantPorraSchema],
+    participants: [participantSchema],
     creatA: { type: Date, default: Date.now },
 });
 const Porra = mongoose.model("Porra", porraSchema);
 
-const participantQuinielaSchema = new mongoose.Schema({
-    userId: { type: mongoose.Schema.Types.ObjectId, required: true },
-    username: { type: String, required: true },
-    seleccio: { type: String, required: true },
-});
 const quinielaSchema = new mongoose.Schema({
     titol: { type: String, required: true },
     partits: [
@@ -95,24 +91,18 @@ const quinielaSchema = new mongoose.Schema({
     ],
     creador: { type: String, required: true },
     apostat: { type: Number, default: 0 },
-    participants: [participantQuinielaSchema],
+    participants: [participantSchema],
     creatA: { type: Date, default: Date.now },
 });
 const Quiniela = mongoose.model("Quiniela", quinielaSchema);
 
-const participantPartitSchema = new mongoose.Schema({
-    userId: { type: mongoose.Schema.Types.ObjectId, required: true },
-    username: { type: String, required: true },
-    seleccio: { type: String, required: true },
-    diners: { type: Number, required: true },
-});
 const partitSchema = new mongoose.Schema({
     equipA: { type: String, required: true },
     equipB: { type: String, required: true },
     empatPermes: { type: Boolean, default: true },
     opcions: [{ type: String, required: true }],
     creador: { type: String, required: true },
-    participants: { type: [participantPartitSchema], default: [] },
+    participants: { type: [participantSchema], default: [] },
     apostat: { type: Number, default: 0 },
     creatA: { type: Date, default: Date.now },
 });
