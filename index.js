@@ -61,9 +61,6 @@ const userSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now },
     apostes: [apostaSchema], // 👈 totes les apostes del jugador
     apostesCreades: [],
-    competicionsCreades: [
-        { type: mongoose.Schema.Types.ObjectId, ref: "Competició" },
-    ],
 });
 const User = mongoose.model("User", userSchema);
 
@@ -131,20 +128,15 @@ const partitIncrustatSchema = new mongoose.Schema({
     },
 });
 
-// Aquest és l'esquema principal per a la col·lecció 'competicions'
+// Aquest és l'esquema principal per a l'única competició
 const competicioSchema = new mongoose.Schema({
-    nomCompeticio: { type: String, required: true },
-    organitzadorId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
-        required: true,
-    },
-    tipus: {
+    identificadorUnic: {
         type: String,
-        enum: ["classificatori", "grups", "individuals"],
-        required: true,
+        unique: true,
+        default: "competició_principal",
     },
-    dataCreacio: { type: Date, default: Date.now },
+    nomCompeticio: { type: String },
+    tipus: { type: String },
     partits: [partitIncrustatSchema],
 });
 
@@ -642,99 +634,57 @@ app.get("/me", authMiddleware, async (req, res) => {
 });
 
 // ───────────────────────────────────────────────────────────
-// GESTIONAR COMPETICIONS
+// RUTES PER A LA GESTIÓ DE LA COMPETICIÓ ÚNICA
 // ───────────────────────────────────────────────────────────
-app.post("/competicions/crear", authMiddleware, async (req, res) => {
+
+// RUTA PÚBLICA: Tothom pot veure la competició
+app.get("/competicio", async (req, res) => {
     try {
-        if (req.user.role !== "organitzador")
-            return res.status(403).json({ error: "Accés denegat." });
+        const competicio = await Competició.findOne({
+            identificadorUnic: "competició_principal",
+        });
+
+        if (!competicio) {
+            return res
+                .status(404)
+                .json({ message: "La competició encara no ha estat creada." });
+        }
+
+        res.json(competicio);
+    } catch (err) {
+        console.error("❌ Error obtenint la competició:", err);
+        res.status(500).json({ error: "Error intern del servidor." });
+    }
+});
+
+// RUTA PRIVADA: Només un 'organitzador' pot actualitzar la competició
+app.put("/competicio", authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== "organitzador") {
+            return res
+                .status(403)
+                .json({
+                    error: "Accés denegat. Rol d'administrador requerit.",
+                });
+        }
 
         const { nomCompeticio, tipus, partits } = req.body;
         if (!nomCompeticio || !tipus || !Array.isArray(partits)) {
             return res.status(400).json({ error: "Falten camps obligatoris." });
         }
 
-        // Comprovem si l'organitzador ja té una competició
-        const user = await User.findById(req.user.id);
-        if (user.competicionsCreades && user.competicionsCreades.length > 0) {
-            return res
-                .status(409)
-                .json({
-                    error: "Aquest organitzador ja té una competició creada.",
-                });
-        }
-
-        const novaCompeticio = new Competició({
-            nomCompeticio,
-            tipus,
-            partits,
-            organitzadorId: req.user.id,
-        });
-        await novaCompeticio.save();
-
-        user.competicionsCreades.push(novaCompeticio._id);
-        await user.save();
-
-        res.status(201).json({
-            message: "Competició creada correctament!",
-            id: novaCompeticio._id,
-        });
-    } catch (err) {
-        console.error("❌ Error creant competició:", err);
-        res.status(500).json({ error: "Error intern del servidor." });
-    }
-});
-
-// RUTA PER OBTENIR LA COMPETICIÓ DE L'ORGANITZADOR ACTUAL
-app.get("/competicions/meva", authMiddleware, async (req, res) => {
-    try {
-        if (req.user.role !== "organitzador")
-            return res.status(403).json({ error: "Accés denegat." });
-
-        const user = await User.findById(req.user.id).populate(
-            "competicionsCreades"
+        const competicioActualitzada = await Competició.findOneAndUpdate(
+            { identificadorUnic: "competició_principal" },
+            { nomCompeticio, tipus, partits },
+            { new: true, upsert: true } // 'upsert: true' la crea si no existeix
         );
-        if (!user) return res.status(404).json({ error: "Usuari no trobat." });
 
-        const competicio =
-            user.competicionsCreades.length > 0
-                ? user.competicionsCreades[0]
-                : null;
-        res.json(competicio);
+        res.json({
+            message: "Competició guardada correctament!",
+            data: competicioActualitzada,
+        });
     } catch (err) {
-        console.error("❌ Error a /competicions/meva:", err);
-        res.status(500).json({ error: "Error intern del servidor." });
-    }
-});
-
-// RUTA PER ACTUALITZAR UNA COMPETICIÓ EXISTENT
-app.put("/competicions/actualitzar/:id", authMiddleware, async (req, res) => {
-    try {
-        if (req.user.role !== "organitzador")
-            return res.status(403).json({ error: "Accés denegat." });
-
-        const { nomCompeticio, tipus, partits } = req.body;
-
-        const competicio = await Competició.findById(req.params.id);
-        if (!competicio)
-            return res.status(404).json({ error: "Competició no trobada." });
-
-        if (competicio.organitzadorId.toString() !== req.user.id) {
-            return res
-                .status(403)
-                .json({
-                    error: "No tens permís per editar aquesta competició.",
-                });
-        }
-
-        competició.nomCompeticio = nomCompeticio;
-        competició.tipus = tipus;
-        competició.partits = partits;
-
-        await competició.save();
-        res.json({ message: "Competició actualitzada correctament!" });
-    } catch (err) {
-        console.error("❌ Error actualitzant competició:", err);
+        console.error("❌ Error guardant la competició:", err);
         res.status(500).json({ error: "Error intern del servidor." });
     }
 });
