@@ -128,18 +128,22 @@ const partitIncrustatSchema = new mongoose.Schema({
     },
 });
 
-// Aquest és l'esquema principal per a l'única competició
+// Aquest és l'esquema principal per a la col·lecció 'competicions'
 const competicioSchema = new mongoose.Schema({
-    identificadorUnic: {
-        type: String,
-        unique: true,
-        default: "competició_principal",
+    nomCompeticio: { type: String, required: true },
+    organitzadorId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        required: true,
     },
-    nomCompeticio: { type: String },
-    tipus: { type: String },
+    tipus: {
+        type: String,
+        enum: ["classificatori", "grups", "individuals"],
+        required: true,
+    },
+    dataCreacio: { type: Date, default: Date.now },
     partits: [partitIncrustatSchema],
 });
-
 const Competició = mongoose.model("Competició", competicioSchema);
 
 // ───────────────────────────────────────────────────────────
@@ -636,55 +640,47 @@ app.get("/me", authMiddleware, async (req, res) => {
 // ───────────────────────────────────────────────────────────
 // RUTES PER A LA GESTIÓ DE LA COMPETICIÓ ÚNICA
 // ───────────────────────────────────────────────────────────
-
-// RUTA PÚBLICA: Tothom pot veure la competició
-app.get("/competicio", async (req, res) => {
+app.put("/competicions/:id", authMiddleware, async (req, res) => {
     try {
-        const competicio = await Competició.findOne({
-            identificadorUnic: "competició_principal",
-        });
-
-        if (!competicio) {
-            return res
-                .status(404)
-                .json({ message: "La competició encara no ha estat creada." });
-        }
-
-        res.json(competicio);
-    } catch (err) {
-        console.error("❌ Error obtenint la competició:", err);
-        res.status(500).json({ error: "Error intern del servidor." });
-    }
-});
-
-// RUTA PRIVADA: Només un 'organitzador' pot actualitzar la competició
-app.put("/competicio", authMiddleware, async (req, res) => {
-    try {
+        // 1. Verifiquem que l'usuari és administrador ('organitzador')
         if (req.user.role !== "organitzador") {
-            return res
-                .status(403)
-                .json({
-                    error: "Accés denegat. Rol d'administrador requerit.",
-                });
+            return res.status(403).json({
+                error: "Accés denegat. Es requereix rol d'administrador.",
+            });
         }
 
+        // 2. Obtenim l'ID dels paràmetres de la URL i les dades del body
+        const { id } = req.params;
         const { nomCompeticio, tipus, partits } = req.body;
+
+        // 3. Validem que les dades necessàries hi siguin
         if (!nomCompeticio || !tipus || !Array.isArray(partits)) {
-            return res.status(400).json({ error: "Falten camps obligatoris." });
+            return res.status(400).json({
+                error: "Falten camps obligatoris: nomCompeticio, tipus, partits.",
+            });
         }
 
-        const competicioActualitzada = await Competició.findOneAndUpdate(
-            { identificadorUnic: "competició_principal" },
+        // 4. Busquem i actualitzem el document per ID
+        const competicioActualitzada = await Competició.findByIdAndUpdate(
+            id,
             { nomCompeticio, tipus, partits },
-            { new: true, upsert: true } // 'upsert: true' la crea si no existeix
+            { new: true } // Aquesta opció fa que retorni el document ja actualitzat
         );
 
+        // Si no troba cap document amb aquest ID, retorna un error
+        if (!competicioActualitzada) {
+            return res.status(404).json({
+                error: "No s'ha trobat cap competició amb aquest ID.",
+            });
+        }
+
+        // 5. Retornem una resposta d'èxit
         res.json({
-            message: "Competició guardada correctament!",
+            message: "Competició actualitzada correctament!",
             data: competicioActualitzada,
         });
     } catch (err) {
-        console.error("❌ Error guardant la competició:", err);
+        console.error("❌ Error actualitzant la competició:", err);
         res.status(500).json({ error: "Error intern del servidor." });
     }
 });
