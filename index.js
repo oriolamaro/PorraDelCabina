@@ -644,57 +644,97 @@ app.get("/me", authMiddleware, async (req, res) => {
 // ───────────────────────────────────────────────────────────
 // RUTES PER A LA GESTIÓ DE LA COMPETICIÓ ÚNICA
 // ───────────────────────────────────────────────────────────
-
-// RUTA PÚBLICA: Tothom pot veure la competició
-app.get("/competicio", async (req, res) => {
+/**
+ * @route   GET /competicions
+ * @desc    Obté una llista de totes les competicions (públic).
+ */
+app.get("/competicions", async (req, res) => {
     try {
-        let competicio = await Competició.findOne({
-            identificadorUnic: "porra_del_cabina",
-        });
-        if (!competicio) {
-            competicio = new Competició({
-                identificadorUnic: "porra_del_cabina",
-                nomCompeticio: "Porra del Cabina",
-                tipus: "classificatori",
-                partits: [],
-            });
-            await competicio.save();
-        }
-        res.json(competicio);
+        const competicions = await Competició.find();
+        res.json(competicions);
     } catch (err) {
-        console.error("❌ Error a GET /competicio:", err);
         res.status(500).json({ error: "Error intern del servidor." });
     }
 });
 
-// RUTA PRIVADA: Només un 'organitzador' pot actualitzar la competició
-app.put("/competicio", authMiddleware, async (req, res) => {
+/**
+ * @route   POST /competicions
+ * @desc    Crea una nova competició (privat per a organitzador).
+ */
+app.post("/competicions", authMiddleware, async (req, res) => {
     try {
-        if (req.user.role !== "organitzador") {
-            return res
-                .status(403)
-                .json({
-                    error: "Accés denegat. Rol d'administrador requerit.",
-                });
-        }
-
+        if (req.user.role !== "organitzador")
+            return res.status(403).json({ error: "Accés denegat." });
         const { nomCompeticio, tipus, partits } = req.body;
-        if (!nomCompeticio || !tipus || !Array.isArray(partits)) {
+        if (!nomCompeticio || !tipus || !Array.isArray(partits))
             return res.status(400).json({ error: "Falten camps obligatoris." });
-        }
 
-        const competicioActualitzada = await Competició.findOneAndUpdate(
-            { identificadorUnic: "porra_del_cabina" },
-            { nomCompeticio, tipus, partits },
-            { new: true, upsert: true }
-        );
+        const novaCompeticio = new Competició({
+            nomCompeticio,
+            tipus,
+            partits,
+            organitzadorId: req.user.id,
+        });
+        await novaCompeticio.save();
 
-        res.json({
-            message: "Competició guardada correctament!",
-            data: competicioActualitzada,
+        await User.findByIdAndUpdate(req.user.id, {
+            $push: { competicionsCreades: novaCompeticio._id },
+        });
+        res.status(201).json({
+            message: "Competició creada!",
+            id: novaCompeticio._id,
         });
     } catch (err) {
-        console.error("❌ Error a PUT /competicio:", err);
+        res.status(500).json({ error: "Error intern del servidor." });
+    }
+});
+
+/**
+ * @route   GET /competicions/meva
+ * @desc    Obté la competició de l'organitzador que ha iniciat sessió.
+ */
+app.get("/competicions/meva", authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== "organitzador")
+            return res.status(403).json({ error: "Accés denegat." });
+        const user = await User.findById(req.user.id).populate(
+            "competicionsCreades"
+        );
+        const competicio =
+            user.competicionsCreades && user.competicionsCreades.length > 0
+                ? user.competicionsCreades[0]
+                : null;
+        res.json(competicio);
+    } catch (err) {
+        res.status(500).json({ error: "Error intern del servidor." });
+    }
+});
+
+/**
+ * @route   PUT /competicions/:id
+ * @desc    Actualitza una competició existent (privat per a organitzador).
+ */
+app.put("/competicions/:id", authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== "organitzador")
+            return res.status(403).json({ error: "Accés denegat." });
+        const { nomCompeticio, tipus, partits } = req.body;
+
+        const competicio = await Competició.findById(req.params.id);
+        if (!competicio)
+            return res.status(404).json({ error: "Competició no trobada." });
+        if (competicio.organitzadorId.toString() !== req.user.id)
+            return res
+                .status(403)
+                .json({ error: "No tens permís per editar això." });
+
+        competició.nomCompeticio = nomCompeticio;
+        competició.tipus = tipus;
+        competició.partits = partits;
+        await competició.save();
+
+        res.json({ message: "Competició actualitzada!" });
+    } catch (err) {
         res.status(500).json({ error: "Error intern del servidor." });
     }
 });
