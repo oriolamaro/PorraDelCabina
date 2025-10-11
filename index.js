@@ -703,19 +703,31 @@ app.get("/competicions/meva", authMiddleware, async (req, res) => {
     }
 });
 
+/**
+ * @route   PUT /competicions/:id
+ * @desc    Actualitza una competicio existent (privat per a organitzador).
+ */
 app.put("/competicions/:id", authMiddleware, async (req, res) => {
     try {
-        if (req.user.role !== "organitzador")
+        if (req.user.role !== "organitzador") {
             return res.status(403).json({ error: "Acces denegat." });
+        }
+
         const { nomCompeticio, tipus, partits } = req.body;
 
+        // Utilitzem findOneAndUpdate per buscar i actualitzar en una sola operacio atomica.
+        // Aixo es mes segur i eficient.
         const competicioActualitzada = await Competició.findOneAndUpdate(
-            { _id: req.params.id, organitzadorId: req.user.id }, // Busca per ID i comprova que l'organitzador sigui el propietari
+            // Condicio de cerca: l'ID ha de coincidir I l'organitzador ha de ser el propietari.
+            { _id: req.params.id, organitzadorId: req.user.id },
+            // Dades per actualitzar
             { nomCompeticio, tipus, partits },
-            { new: true } // Retorna el document actualitzat
+            // Opcions: retorna el document nou despres d'actualitzar.
+            { new: true }
         );
 
         if (!competicióActualitzada) {
+            // Si no es troba cap document, es perque l'ID no existeix o l'usuari no te permisos.
             return res
                 .status(404)
                 .json({
