@@ -641,9 +641,12 @@ app.get("/me", authMiddleware, async (req, res) => {
     }
 });
 
+// Substitueix les teves rutes de competicions per aquest bloc
+
 // ───────────────────────────────────────────────────────────
-// RUTES PER A LA GESTIÓ DE LA COMPETICIÓ ÚNICA
+// RUTES PER A LA GESTIÓ DE COMPETICIONS
 // ───────────────────────────────────────────────────────────
+
 /**
  * @route   GET /competicions
  * @desc    Obté una llista de totes les competicions (públic).
@@ -653,6 +656,7 @@ app.get("/competicions", async (req, res) => {
         const competicions = await Competició.find();
         res.json(competicions);
     } catch (err) {
+        console.error("❌ Error a GET /competicions:", err);
         res.status(500).json({ error: "Error intern del servidor." });
     }
 });
@@ -665,9 +669,11 @@ app.post("/competicions", authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== "organitzador")
             return res.status(403).json({ error: "Accés denegat." });
+
         const { nomCompeticio, tipus, partits } = req.body;
-        if (!nomCompeticio || !tipus || !Array.isArray(partits))
+        if (!nomCompeticio || !tipus || !Array.isArray(partits)) {
             return res.status(400).json({ error: "Falten camps obligatoris." });
+        }
 
         const novaCompeticio = new Competició({
             nomCompeticio,
@@ -680,11 +686,13 @@ app.post("/competicions", authMiddleware, async (req, res) => {
         await User.findByIdAndUpdate(req.user.id, {
             $push: { competicionsCreades: novaCompeticio._id },
         });
+
         res.status(201).json({
-            message: "Competició creada!",
+            message: "Competició creada correctament!",
             id: novaCompeticio._id,
         });
     } catch (err) {
+        console.error("❌ Error a POST /competicions:", err);
         res.status(500).json({ error: "Error intern del servidor." });
     }
 });
@@ -697,15 +705,19 @@ app.get("/competicions/meva", authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== "organitzador")
             return res.status(403).json({ error: "Accés denegat." });
+
         const user = await User.findById(req.user.id).populate(
             "competicionsCreades"
         );
+        if (!user) return res.status(404).json({ error: "Usuari no trobat." });
+
         const competicio =
             user.competicionsCreades && user.competicionsCreades.length > 0
                 ? user.competicionsCreades[0]
                 : null;
         res.json(competicio);
     } catch (err) {
+        console.error("❌ Error a GET /competicions/meva:", err);
         res.status(500).json({ error: "Error intern del servidor." });
     }
 });
@@ -718,23 +730,35 @@ app.put("/competicions/:id", authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== "organitzador")
             return res.status(403).json({ error: "Accés denegat." });
+
         const { nomCompeticio, tipus, partits } = req.body;
 
         const competicio = await Competició.findById(req.params.id);
         if (!competicio)
-            return res.status(404).json({ error: "Competició no trobada." });
-        if (competicio.organitzadorId.toString() !== req.user.id)
+            return res
+                .status(404)
+                .json({ error: "Competició no trobada amb aquest ID." });
+
+        if (competicio.organitzadorId.toString() !== req.user.id) {
+            console.warn(
+                `Intent d'edició no autoritzat per a la competició ${req.params.id} per l'usuari ${req.user.id}`
+            );
             return res
                 .status(403)
-                .json({ error: "No tens permís per editar això." });
+                .json({
+                    error: "No tens permís per editar aquesta competició.",
+                });
+        }
 
         competició.nomCompeticio = nomCompeticio;
         competició.tipus = tipus;
         competició.partits = partits;
+
         await competició.save();
 
-        res.json({ message: "Competició actualitzada!" });
+        res.json({ message: "Competició actualitzada correctament!" });
     } catch (err) {
+        console.error(`❌ Error a PUT /competicions/${req.params.id}:`, err);
         res.status(500).json({ error: "Error intern del servidor." });
     }
 });
