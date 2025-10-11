@@ -644,6 +644,9 @@ app.get("/me", authMiddleware, async (req, res) => {
 // ───────────────────────────────────────────────────────────
 // RUTES PER A LA GESTIO DE COMPETICIONS
 // ───────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────
+// RUTES PER A LA GESTIO DE COMPETICIONS
+// ───────────────────────────────────────────────────────────
 
 app.get("/competicions", async (req, res) => {
     try {
@@ -659,9 +662,11 @@ app.post("/competicions", authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== "organitzador")
             return res.status(403).json({ error: "Acces denegat." });
+
         const { nomCompeticio, tipus, partits } = req.body;
-        if (!nomCompeticio || !tipus || !Array.isArray(partits))
+        if (!nomCompeticio || !tipus || !Array.isArray(partits)) {
             return res.status(400).json({ error: "Falten camps obligatoris." });
+        }
 
         const novaCompeticio = new Competició({
             nomCompeticio,
@@ -674,6 +679,7 @@ app.post("/competicions", authMiddleware, async (req, res) => {
         await User.findByIdAndUpdate(req.user.id, {
             $push: { competicionsCreades: novaCompeticio._id },
         });
+
         res.status(201).json({
             message: "Competició creada correctament!",
             id: novaCompeticio._id,
@@ -692,6 +698,7 @@ app.get("/competicions/meva", authMiddleware, async (req, res) => {
             "competicionsCreades"
         );
         if (!user) return res.status(404).json({ error: "Usuari no trobat." });
+
         const competicio =
             user.competicionsCreades && user.competicionsCreades.length > 0
                 ? user.competicionsCreades[0]
@@ -703,10 +710,6 @@ app.get("/competicions/meva", authMiddleware, async (req, res) => {
     }
 });
 
-/**
- * @route   PUT /competicions/:id
- * @desc    Actualitza una competicio existent (privat per a organitzador).
- */
 app.put("/competicions/:id", authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== "organitzador") {
@@ -715,8 +718,6 @@ app.put("/competicions/:id", authMiddleware, async (req, res) => {
 
         const { nomCompeticio, tipus, partits } = req.body;
 
-        // Utilitzem findOneAndUpdate per buscar i actualitzar en una sola operacio atomica.
-        // Aixo es mes segur i eficient.
         const competicioActualitzada = await Competició.findOneAndUpdate(
             // Condicio de cerca: l'ID ha de coincidir I l'organitzador ha de ser el propietari.
             { _id: req.params.id, organitzadorId: req.user.id },
@@ -727,7 +728,6 @@ app.put("/competicions/:id", authMiddleware, async (req, res) => {
         );
 
         if (!competicióActualitzada) {
-            // Si no es troba cap document, es perque l'ID no existeix o l'usuari no te permisos.
             return res
                 .status(404)
                 .json({
