@@ -641,16 +641,10 @@ app.get("/me", authMiddleware, async (req, res) => {
     }
 });
 
-// Substitueix les teves rutes de competicions per aquest bloc
-
 // ───────────────────────────────────────────────────────────
-// RUTES PER A LA GESTIÓ DE COMPETICIONS
+// RUTES PER A LA GESTIO DE COMPETICIONS
 // ───────────────────────────────────────────────────────────
 
-/**
- * @route   GET /competicions
- * @desc    Obté una llista de totes les competicions (públic).
- */
 app.get("/competicions", async (req, res) => {
     try {
         const competicions = await Competició.find();
@@ -661,19 +655,13 @@ app.get("/competicions", async (req, res) => {
     }
 });
 
-/**
- * @route   POST /competicions
- * @desc    Crea una nova competició (privat per a organitzador).
- */
 app.post("/competicions", authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== "organitzador")
-            return res.status(403).json({ error: "Accés denegat." });
-
+            return res.status(403).json({ error: "Acces denegat." });
         const { nomCompeticio, tipus, partits } = req.body;
-        if (!nomCompeticio || !tipus || !Array.isArray(partits)) {
+        if (!nomCompeticio || !tipus || !Array.isArray(partits))
             return res.status(400).json({ error: "Falten camps obligatoris." });
-        }
 
         const novaCompeticio = new Competició({
             nomCompeticio,
@@ -686,7 +674,6 @@ app.post("/competicions", authMiddleware, async (req, res) => {
         await User.findByIdAndUpdate(req.user.id, {
             $push: { competicionsCreades: novaCompeticio._id },
         });
-
         res.status(201).json({
             message: "Competició creada correctament!",
             id: novaCompeticio._id,
@@ -697,20 +684,14 @@ app.post("/competicions", authMiddleware, async (req, res) => {
     }
 });
 
-/**
- * @route   GET /competicions/meva
- * @desc    Obté la competició de l'organitzador que ha iniciat sessió.
- */
 app.get("/competicions/meva", authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== "organitzador")
-            return res.status(403).json({ error: "Accés denegat." });
-
+            return res.status(403).json({ error: "Acces denegat." });
         const user = await User.findById(req.user.id).populate(
             "competicionsCreades"
         );
         if (!user) return res.status(404).json({ error: "Usuari no trobat." });
-
         const competicio =
             user.competicionsCreades && user.competicionsCreades.length > 0
                 ? user.competicionsCreades[0]
@@ -722,39 +703,25 @@ app.get("/competicions/meva", authMiddleware, async (req, res) => {
     }
 });
 
-/**
- * @route   PUT /competicions/:id
- * @desc    Actualitza una competició existent (privat per a organitzador).
- */
 app.put("/competicions/:id", authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== "organitzador")
-            return res.status(403).json({ error: "Accés denegat." });
-
+            return res.status(403).json({ error: "Acces denegat." });
         const { nomCompeticio, tipus, partits } = req.body;
 
-        const competicio = await Competició.findById(req.params.id);
-        if (!competicio)
+        const competicioActualitzada = await Competició.findOneAndUpdate(
+            { _id: req.params.id, organitzadorId: req.user.id }, // Busca per ID i comprova que l'organitzador sigui el propietari
+            { nomCompeticio, tipus, partits },
+            { new: true } // Retorna el document actualitzat
+        );
+
+        if (!competicióActualitzada) {
             return res
                 .status(404)
-                .json({ error: "Competició no trobada amb aquest ID." });
-
-        if (competicio.organitzadorId.toString() !== req.user.id) {
-            console.warn(
-                `Intent d'edició no autoritzat per a la competició ${req.params.id} per l'usuari ${req.user.id}`
-            );
-            return res
-                .status(403)
                 .json({
-                    error: "No tens permís per editar aquesta competició.",
+                    error: "Competició no trobada o no tens permisos per editar-la.",
                 });
         }
-
-        competició.nomCompeticio = nomCompeticio;
-        competició.tipus = tipus;
-        competició.partits = partits;
-
-        await competició.save();
 
         res.json({ message: "Competició actualitzada correctament!" });
     } catch (err) {
