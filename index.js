@@ -718,6 +718,8 @@ app.put("/competicions/:id", authMiddleware, async (req, res) => {
 
         const { nomCompeticio, tipus, partits } = req.body;
 
+        // Utilitzem findOneAndUpdate, que es mes segur i eficient.
+        // Aquesta operacio busca el document i l'actualitza atomicament.
         const competicioActualitzada = await Competició.findOneAndUpdate(
             // Condicio de cerca: l'ID ha de coincidir I l'organitzador ha de ser el propietari.
             { _id: req.params.id, organitzadorId: req.user.id },
@@ -727,14 +729,14 @@ app.put("/competicions/:id", authMiddleware, async (req, res) => {
             { new: true }
         );
 
-        if (!competicióActualitzada) {
-            return res
-                .status(404)
-                .json({
-                    error: "Competició no trobada o no tens permisos per editar-la.",
-                });
+        // Si findOneAndUpdate no troba cap document, retorna null.
+        if (!competicioActualitzada) {
+            return res.status(404).json({
+                error: "Competició no trobada o no tens permisos per editar-la.",
+            });
         }
 
+        // Si tot ha anat be, enviem la resposta d'exit.
         res.json({ message: "Competició actualitzada correctament!" });
     } catch (err) {
         console.error(`❌ Error a PUT /competicions/${req.params.id}:`, err);
