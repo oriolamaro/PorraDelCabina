@@ -124,6 +124,7 @@ const partitIncrustatSchema = new mongoose.Schema({
     apostable: { type: Boolean, default: false },
     resultatEquip1: { type: Number, default: null },
     resultatEquip2: { type: Number, default: null },
+    guanyadorPartit: { type: String, default: null },
     estatPartit: {
         type: String,
         enum: ["pendent", "en_joc", "finalitzat", "cancel·lat"],
@@ -614,6 +615,128 @@ app.get("/gestiona", authMiddleware, async (req, res) => {
     } catch (err) {
         console.error("❌ Error a /gestiona:", err);
         res.status(500).json({ error: "Error intern del servidor" });
+    }
+});
+
+// ───────────────────────────────────────────────────────────
+// RUTA PER AFEGIR/ACTUALITZAR RESULTAT D'UN PARTIT
+// ───────────────────────────────────────────────────────────
+app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
+    try {
+        // 1. Validació de Rol (Només organitzadors)
+        if (req.user.role !== "organitzador") {
+            return res
+                .status(403)
+                .json({
+                    error: "Accés denegat. Només els organitzadors poden posar resultats.",
+                });
+        }
+
+        const { partitId } = req.params;
+        // Dades rebudes des del Popup
+        const { equip1Resultat, equip2Resultat, guanyadorPartit } = req.body;
+        const organitzadorId = req.user.id;
+
+        // 2. Validació d'Entrades
+        if (
+            typeof equip1Resultat !== "number" ||
+            typeof equip2Resultat !== "number" ||
+            equip1Resultat < 0 ||
+            equip2Resultat < 0
+        ) {
+            return res
+                .status(400)
+                .json({ error: "Els resultats han de ser números positius." });
+        }
+
+        // 3. Trobar la Competició i el Partit (i validar permisos)
+        // Busquem la competició que pertany a l'usuari I que conté el partit
+        const competicio = await Competició.findOne({
+            organitzadorId: organitzadorId,
+            "partits._id": partitId,
+        });
+
+        if (!competicio) {
+            return res
+                .status(404)
+                .json({
+                    error: "Partit no trobat o no tens permisos sobre aquesta competició.",
+                });
+        }
+
+        // Extreiem el subdocument del partit
+        const partit = competicio.partits.id(partitId);
+        if (!partit) {
+            return res
+                .status(404)
+                .json({
+                    error: "Error intern: No s'ha pogut localitzar el partit.",
+                });
+        }
+
+        // 4. Validació de Data (El partit ha d'haver començat)
+        if (!partit.data) {
+            return res
+                .status(400)
+                .json({
+                    error: "El partit no té data assignada. Assigna una data abans de posar el resultat.",
+                });
+        }
+        if (new Date(partit.data) > new Date()) {
+            return res
+                .status(400)
+                .json({
+                    error: "No es pot posar un resultat a un partit que encara no ha començat.",
+                });
+        }
+
+        // 5. Validació de Lògica de Competició (Empats i Penals)
+        const isEmpat = equip1Resultat === equip2Resultat;
+
+        if (
+            competicio.tipus === "classificatori" &&
+            isEmpat &&
+            !guanyadorPartit
+        ) {
+            // ERROR: És un classificatori, hi ha empat, i no s'ha enviat guanyador de penals.
+            return res
+                .status(400)
+                .json({
+                    error: "Els partits de classificatori no poden empatar. S'ha d'indicar un guanyador.",
+                });
+        }
+
+        if (
+            !isEmpat &&
+            guanyadorPartit !== (partit.equip1 || partit.team1) &&
+            guanyadorPartit !== (partit.equip2 || partit.team2)
+        ) {
+            // ERROR: El resultat no és empat, però el 'guanyadorPartit' enviat no coincideix amb el guanyador real
+            return res
+                .status(400)
+                .json({
+                    error: "El guanyador no coincideix amb el resultat (no empat).",
+                });
+        }
+
+        // 6. Actualització a la Base de Dades
+        // Mongoose pot gestionar l'actualització de subdocuments directament
+        partit.resultatEquip1 = equip1Resultat;
+        partit.resultatEquip2 = equip2Resultat;
+        partit.guanyadorPartit = guanyadorPartit; // Guardem el guanyador (equip o null)
+        partit.estatPartit = "finalitzat";
+
+        await competicio.save(); // Guardem el document 'Competició' pare
+
+        // TODO: Aquí aniria la lògica per resoldre apostes i avançar de fase si cal
+
+        res.status(200).json({ message: "Resultat guardat correctament." });
+    } catch (err) {
+        console.error(
+            `❌ Error a POST /partits/${req.params.partitId}/resultat:`,
+            err
+        );
+        res.status(500).json({ error: "Error intern del servidor." });
     }
 });
 
