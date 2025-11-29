@@ -726,9 +726,41 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
         partit.guanyadorPartit = guanyadorPartit; // Guardem el guanyador (equip o null)
         partit.estatPartit = "finalitzat";
 
-        await competicio.save(); // Guardem el document 'Competició' pare
+        // 7. Lògica de Torneig (Avançar Ronda)
+        if (competicio.tipus === "classificatori" && guanyadorPartit) {
+            const currentRound = partit.round;
+            const currentPos = partit.position;
+            const nextRound = currentRound + 1;
+            const nextPos = Math.floor(currentPos / 2);
+            const isTeam1InNextMatch = currentPos % 2 === 0; // Parell -> equip1, Imparell -> equip2
 
-        // TODO: Aquí aniria la lògica per resoldre apostes i avançar de fase si cal
+            // Buscar el partit de la següent ronda
+            let nextMatch = competicio.partits.find(
+                (p) => p.round === nextRound && p.position === nextPos
+            );
+
+            if (!nextMatch) {
+                // Si no existeix, el creem
+                nextMatch = {
+                    round: nextRound,
+                    position: nextPos,
+                    equip1: isTeam1InNextMatch ? guanyadorPartit : null,
+                    equip2: !isTeam1InNextMatch ? guanyadorPartit : null,
+                    estatPartit: "pendent",
+                    apostable: false, // Per defecte
+                };
+                competicio.partits.push(nextMatch);
+            } else {
+                // Si existeix, l'actualitzem
+                if (isTeam1InNextMatch) {
+                    nextMatch.equip1 = guanyadorPartit;
+                } else {
+                    nextMatch.equip2 = guanyadorPartit;
+                }
+            }
+        }
+
+        await competicio.save(); // Guardem el document 'Competició' pare
 
         res.status(200).json({ message: "Resultat guardat correctament." });
     } catch (err) {
