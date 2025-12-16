@@ -634,7 +634,13 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
 
         const { partitId } = req.params;
         // Dades rebudes des del Popup
-        const { equip1Resultat, equip2Resultat, guanyadorPartit } = req.body;
+        const {
+            equip1Resultat,
+            equip2Resultat,
+            guanyadorPartit,
+            nextMatchDate,
+            nextMatchApostable,
+        } = req.body;
         const organitzadorId = req.user.id;
 
         // 2. Validació d'Entrades
@@ -747,7 +753,9 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
                     equip1: isTeam1InNextMatch ? guanyadorPartit : null,
                     equip2: !isTeam1InNextMatch ? guanyadorPartit : null,
                     estatPartit: "pendent",
-                    apostable: false, // Per defecte
+                    // ✅ APLICAR DATA I APOSTABLE
+                    data: nextMatchDate ? new Date(nextMatchDate) : null,
+                    apostable: nextMatchApostable || false,
                 };
                 competicio.partits.push(nextMatch);
             } else {
@@ -757,6 +765,10 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
                 } else {
                     nextMatch.equip2 = guanyadorPartit;
                 }
+                // ✅ ACTUALITZAR DATA I APOSTABLE (Si s'han passat)
+                if (nextMatchDate) nextMatch.data = new Date(nextMatchDate);
+                if (nextMatchApostable !== undefined)
+                    nextMatch.apostable = nextMatchApostable;
             }
         }
 
@@ -817,6 +829,26 @@ app.post("/competicions", authMiddleware, async (req, res) => {
         const { nomCompeticio, tipus, partits } = req.body;
         if (!nomCompeticio || !tipus || !Array.isArray(partits))
             return res.status(400).json({ error: "Falten camps obligatoris." });
+
+        // 🗑️ ELIMINAR COMPETICIONS ANTERIORS (SOLITUD USUARI)
+        // Busquem les competicions antigues d'aquest usuari
+        const competicionsAntigues = await Competició.find({
+            organitzadorId: req.user.id,
+        });
+
+        if (competicionsAntigues.length > 0) {
+            // Esborrem les competicions de la col·lecció 'Competició'
+            await Competició.deleteMany({ organitzadorId: req.user.id });
+
+            // Opcional: Si volguessis eliminar també els partits incrustats dins d'altres col·leccions (si n'hi hagués), ho faries aquí.
+            // Però com que estan incrustats, n'hi ha prou amb esborrar el document pare.
+        }
+
+        // 🗑️ NETEJAR REFERÈNCIES A L'USUARI
+        // Buidem l'array 'competicionsCreades' de l'usuari perquè només en tingui una (la nova)
+        await User.findByIdAndUpdate(req.user.id, {
+            $set: { competicionsCreades: [] },
+        });
 
         const novaCompeticio = new Competició({
             nomCompeticio,
