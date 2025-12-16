@@ -842,8 +842,10 @@ app.post("/competicions", authMiddleware, async (req, res) => {
         }
 
         // 🗑️ ELIMINAR OTRAS APOSTES CREADES PER L'USUARI (PARTITS, PORRES, QUINIELES)
-        // Per garantir que no quedin partits solts antics
-        await Partit.deleteMany({ creador: req.user.username });
+        // Per garantir que no quedin partits solts antics (per ID usuari i username per seguretat)
+        await Partit.deleteMany({
+            $or: [{ creador: req.user.username }, { organitzador: req.user.id }],
+        });
         await Porra.deleteMany({ creador: req.user.username });
         await Quiniela.deleteMany({ creador: req.user.username });
 
