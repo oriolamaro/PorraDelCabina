@@ -839,15 +839,21 @@ app.post("/competicions", authMiddleware, async (req, res) => {
         if (competicionsAntigues.length > 0) {
             // Esborrem les competicions de la col·lecció 'Competició'
             await Competició.deleteMany({ organitzadorId: req.user.id });
-
-            // Opcional: Si volguessis eliminar també els partits incrustats dins d'altres col·leccions (si n'hi hagués), ho faries aquí.
-            // Però com que estan incrustats, n'hi ha prou amb esborrar el document pare.
         }
 
+        // 🗑️ ELIMINAR OTRAS APOSTES CREADES PER L'USUARI (PARTITS, PORRES, QUINIELES)
+        // Per garantir que no quedin partits solts antics
+        await Partit.deleteMany({ creador: req.user.username });
+        await Porra.deleteMany({ creador: req.user.username });
+        await Quiniela.deleteMany({ creador: req.user.username });
+
         // 🗑️ NETEJAR REFERÈNCIES A L'USUARI
-        // Buidem l'array 'competicionsCreades' de l'usuari perquè només en tingui una (la nova)
+        // Buidem 'competicionsCreades' I 'apostesCreades'
         await User.findByIdAndUpdate(req.user.id, {
-            $set: { competicionsCreades: [] },
+            $set: {
+                competicionsCreades: [],
+                apostesCreades: [],
+            },
         });
 
         const novaCompeticio = new Competició({
