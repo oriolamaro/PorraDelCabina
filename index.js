@@ -826,9 +826,21 @@ app.post("/competicions", authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== "organitzador")
             return res.status(403).json({ error: "Acces denegat." });
-        const { nomCompeticio, tipus, partits } = req.body;
+        const { nomCompeticio, tipus, partits, confirmarBorrado } = req.body;
         if (!nomCompeticio || !tipus || !Array.isArray(partits))
             return res.status(400).json({ error: "Falten camps obligatoris." });
+
+        // 🛡️ VERIFICACIÓ D'APOSTES EXISTENTS (EXCEPTE PORRA)
+        // Busquem si hi ha Quinielas (o altres tipus) creades per l'usuari
+        if (!confirmarBorrado) {
+            const betsExistents = await Quiniela.countDocuments({ creador: req.user.username });
+            if (betsExistents > 0) {
+                return res.status(409).json({ 
+                    error: "EXISTING_BETS", 
+                    message: "Tens apostes (Quinieles) actives. Has de validar-les o anular-les abans de crear una nova competició." 
+                });
+            }
+        }
 
         // 🗑️ ELIMINAR COMPETICIONS ANTERIORS (SOLITUD USUARI)
         // Busquem les competicions antigues d'aquest usuari
@@ -846,8 +858,14 @@ app.post("/competicions", authMiddleware, async (req, res) => {
         await Partit.deleteMany({
             $or: [{ creador: req.user.username }, { organitzador: req.user.id }],
         });
-        await Porra.deleteMany({ creador: req.user.username });
-        await Quiniela.deleteMany({ creador: req.user.username });
+        
+        // ❌ NO ESBORREM LES PORRES (Petició Usuari)
+        // await Porra.deleteMany({ creador: req.user.username }); 
+
+        // 🗑️ ESBORREM QUINIELES NOMÉS SI ESTEM CONFIRMATS (O SI NO N'HI HA)
+        if (confirmarBorrado) {
+             await Quiniela.deleteMany({ creador: req.user.username });
+        }
 
         // 🗑️ NETEJAR REFERÈNCIES A L'USUARI
         // Buidem 'competicionsCreades' I 'apostesCreades'
