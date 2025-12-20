@@ -853,18 +853,81 @@ app.post("/competicions", authMiddleware, async (req, res) => {
             await Competició.deleteMany({ organitzadorId: req.user.id });
         }
 
-        // 🗑️ ELIMINAR OTRAS APOSTES CREADES PER L'USUARI (PARTITS, PORRES, QUINIELES)
-        // Per garantir que no quedin partits solts antics (per ID usuari i username per seguretat)
-        await Partit.deleteMany({
-            $or: [{ creador: req.user.username }, { organitzador: req.user.id }],
-        });
         
-        // ❌ NO ESBORREM LES PORRES (Petició Usuari)
-        // await Porra.deleteMany({ creador: req.user.username }); 
-
+        // 🗑️ ELIMINAR OTRAS APOSTES CREADES PER L'USUARI (QUINIELES)
         // 🗑️ ESBORREM QUINIELES NOMÉS SI ESTEM CONFIRMATS (O SI NO N'HI HA)
         if (confirmarBorrado) {
              await Quiniela.deleteMany({ creador: req.user.username });
+        }
+
+        // 🔄 GESTIÓ INTEL·LIGENT DE PARTITS
+        // Enlloc d'esborrar-ho tot, preservem els partits existents
+        const partitsExistents = await Partit.find({
+            $or: [{ creador: req.user.username }, { organitzador: req.user.id }],
+        });
+
+        // Crear map per equips (equip1 + equip2)
+        const partitsExistentsMap = new Map();
+        for (const partit of partitsExistents) {
+            if (partit.equip1 && partit.equip2) {
+                const key = `${partit.equip1}|${partit.equip2}`;
+                partitsExistentsMap.set(key, partit);
+            }
+        }
+
+        const partitsProcessatsIDs = new Set();
+        const partitsAGuardar = [];
+
+        // Processar cada partit de la petició
+        for (const partitNou of partits) {
+            // Buscar partit existent per noms d'equips
+            const key = partitNou.equip1 && partitNou.equip2 ? `${partitNou.equip1}|${partitNou.equip2}` : null;
+            const partitExistent = key ? partitsExistentsMap.get(key) : null;
+
+            if (partitExistent) {
+                // Partit existent trobat: actualitzar preservant data i resultats
+                partitExistent.round = partitNou.round ?? partitExistent.round;
+                partitExistent.position = partitNou.position ?? partitExistent.position;
+                partitExistent.grup = partitNou.grup || partitExistent.grup;
+                
+                // Preservem data existent si no s'envia una de nova
+                if (partitNou.data) {
+                    partitExistent.data = partitNou.data;
+                }
+                // Preservem apostable existent si no s'especifica
+                if (partitNou.apostable !== undefined) {
+                    partitExistent.apostable = partitNou.apostable;
+                }
+                // NO toquem equip1, equip2 (ja coincideixen)
+                // Actualitzem resultats si s'envien
+                if (partitNou.estatPartit) partitExistent.estatPartit = partitNou.estatPartit;
+                if (partitNou.resultatEquip1 !== undefined) partitExistent.resultatEquip1 = partitNou.resultatEquip1;
+                if (partitNou.resultatEquip2 !== undefined) partitExistent.resultatEquip2 = partitNou.resultatEquip2;
+                if (partitNou.guanyadorPartit) partitExistent.guanyadorPartit = partitNou.guanyadorPartit;
+                if (partitNou.resultatPartit) partitExistent.resultatPartit = partitNou.resultatPartit;
+                
+                await partitExistent.save();
+                partitsProcessatsIDs.add(partitExistent._id.toString());
+                partitsAGuardar.push(partitExistent);
+            } else if (partitNou.equip1 && partitNou.equip2) {
+                // Partit nou: crear-lo només si té ambdós equips definits
+                const nouPartit = new Partit({
+                    ...partitNou,
+                    creador: req.user.username,
+                    organitzador: req.user.id,
+                });
+                await nouPartit.save();
+                partitsAGuardar.push(nouPartit);
+                partitsProcessatsIDs.add(nouPartit._id.toString());
+            }
+        }
+
+        // Esborrar partits orfes (que ja no estan a la llista)
+        const partitsAEsborrar = partitsExistents.filter(
+            p => !partitsProcessatsIDs.has(p._id.toString())
+        );
+        for (const partit of partitsAEsborrar) {
+            await Partit.findByIdAndDelete(partit._id);
         }
 
         // 🗑️ NETEJAR REFERÈNCIES A L'USUARI
