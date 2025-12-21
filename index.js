@@ -878,148 +878,142 @@ app.get("/me", authMiddleware, async (req, res) => {
 
 app.get("/competicions", async (req, res) => {
     try {
+        console.log("📖 [GET COMPETICIONS] Obtenint llista de competicions...");
         const competicions = await Competició.find();
+        console.log("  ✅ Competicions trobades:", competicions.length);
         res.json(competicions);
     } catch (err) {
-        console.error("❌ Error a GET /competicions:", err);
+        console.error("❌ [GET COMPETICIONS] Error:", err.message);
+        console.error(err.stack);
         res.status(500).json({ error: "Error intern del servidor." });
     }
 });
 
 app.post("/competicions", authMiddleware, async (req, res) => {
     try {
-        if (req.user.role !== "organitzador")
+        console.log("🟢 ═══════════════════════════════════════════════════");
+        console.log("🟢 [COMPETICIÓ] Nova petició de creació rebuda");
+        console.log("🟢 ═══════════════════════════════════════════════════");
+        console.log("  👤 User:", req.user.username, "(", req.user.id, ")");
+        console.log("  📋 Body keys:", Object.keys(req.body));
+        
+        if (req.user.role !== "organitzador") {
+            console.log("❌ [COMPETICIÓ] Accés denegat: no és organitzador");
             return res.status(403).json({ error: "Acces denegat." });
+        }
+        console.log("  ✅ Rol validat");
+        
         const { nomCompeticio, tipus, partits, confirmarBorrado } = req.body;
-        if (!nomCompeticio || !tipus || !Array.isArray(partits))
+        console.log("  📋 Dades rebudes:");
+        console.log("    - nomCompeticio:", nomCompeticio);
+        console.log("    - tipus:", tipus);
+        console.log("    - partits:", Array.isArray(partits) ? `Array(${partits.length})` : typeof partits);
+        console.log("    - confirmarBorrado:", confirmarBorrado);
+        
+        if (!nomCompeticio || !tipus || !Array.isArray(partits)) {
+            console.log("❌ [COMPETICIÓ] Falten camps obligatoris");
             return res.status(400).json({ error: "Falten camps obligatoris." });
+        }
+        console.log("  ✅ Camps obligatoris presents");
 
         // 🛡️ VERIFICACIÓ D'APOSTES EXISTENTS (EXCEPTE PORRA)
-        // Busquem si hi ha Quinielas (o altres tipus) creades per l'usuari
+        console.log("  🔍 Verificant apostes existents...");
         if (!confirmarBorrado) {
             const betsExistents = await Quiniela.countDocuments({ creador: req.user.username });
+            console.log("    - Quinieles trobades:", betsExistents);
             if (betsExistents > 0) {
+                console.log("❌ [COMPETICIÓ] Hi ha apostes existents");
                 return res.status(409).json({ 
                     error: "EXISTING_BETS", 
                     message: "Tens apostes (Quinieles) actives. Has de validar-les o anular-les abans de crear una nova competició." 
                 });
             }
         }
+        console.log("  ✅ No hi ha apostes que bloquegin");
 
-        // 🗑️ ELIMINAR COMPETICIONS ANTERIORS (SOLITUD USUARI)
-        // Busquem les competicions antigues d'aquest usuari
+        // 🗑️ ELIMINAR COMPETICIONS ANTERIORS
+        console.log("  🗑️ Buscant competicions anteriors...");
         const competicionsAntigues = await Competició.find({
             organitzadorId: req.user.id,
         });
+        console.log("    - Competicions anteriors trobades:", competicionsAntigues.length);
 
         if (competicionsAntigues.length > 0) {
-            // Esborrem les competicions de la col·lecció 'Competició'
+            console.log("    - Esborrant competicions anteriors...");
             await Competició.deleteMany({ organitzadorId: req.user.id });
+            console.log("    ✅ Competicions anteriors esborrades");
         }
 
-        
-        // 🗑️ ELIMINAR OTRAS APOSTES CREADES PER L'USUARI (QUINIELES)
-        // 🗑️ ESBORREM QUINIELES NOMÉS SI ESTEM CONFIRMATS (O SI NO N'HI HA)
+        // 🗑️ ELIMINAR QUINIELES SI CONFIRMAT
         if (confirmarBorrado) {
-             await Quiniela.deleteMany({ creador: req.user.username });
+            console.log("  🗑️ Esborrant quinieles...");
+            const result = await Quiniela.deleteMany({ creador: req.user.username });
+            console.log("    - Quinieles esborrades:", result.deletedCount);
         }
 
-        // 🔄 GESTIÓ INTEL·LIGENT DE PARTITS
-        // Enlloc d'esborrar-ho tot, preservem els partits existents
-        const partitsExistents = await Partit.find({
-            $or: [{ creador: req.user.username }, { organitzador: req.user.id }],
-        });
-
-        // Crear map per equips (equip1 + equip2)
-        const partitsExistentsMap = new Map();
-        for (const partit of partitsExistents) {
-            if (partit.equip1 && partit.equip2) {
-                const key = `${partit.equip1}|${partit.equip2}`;
-                partitsExistentsMap.set(key, partit);
-            }
-        }
-
-        const partitsProcessatsIDs = new Set();
-        const partitsAGuardar = [];
-
-        // Processar cada partit de la petició
-        for (const partitNou of partits) {
-            // Buscar partit existent per noms d'equips
-            const key = partitNou.equip1 && partitNou.equip2 ? `${partitNou.equip1}|${partitNou.equip2}` : null;
-            const partitExistent = key ? partitsExistentsMap.get(key) : null;
-
-            if (partitExistent) {
-                // Partit existent trobat: actualitzar preservant data i resultats
-                partitExistent.round = partitNou.round ?? partitExistent.round;
-                partitExistent.position = partitNou.position ?? partitExistent.position;
-                partitExistent.grup = partitNou.grup || partitExistent.grup;
-                
-                // Preservem data existent si no s'envia una de nova
-                if (partitNou.data) {
-                    partitExistent.data = partitNou.data;
-                }
-                // Preservem apostable existent si no s'especifica
-                if (partitNou.apostable !== undefined) {
-                    partitExistent.apostable = partitNou.apostable;
-                }
-                // NO toquem equip1, equip2 (ja coincideixen)
-                // Actualitzem resultats si s'envien
-                if (partitNou.estatPartit) partitExistent.estatPartit = partitNou.estatPartit;
-                if (partitNou.resultatEquip1 !== undefined) partitExistent.resultatEquip1 = partitNou.resultatEquip1;
-                if (partitNou.resultatEquip2 !== undefined) partitExistent.resultatEquip2 = partitNou.resultatEquip2;
-                if (partitNou.guanyadorPartit) partitExistent.guanyadorPartit = partitNou.guanyadorPartit;
-                if (partitNou.resultatPartit) partitExistent.resultatPartit = partitNou.resultatPartit;
-                
-                await partitExistent.save();
-                partitsProcessatsIDs.add(partitExistent._id.toString());
-                partitsAGuardar.push(partitExistent);
-            } else if (partitNou.equip1 && partitNou.equip2) {
-                // Partit nou: crear-lo només si té ambdós equips definits
-                const nouPartit = new Partit({
-                    ...partitNou,
-                    creador: req.user.username,
-                    organitzador: req.user.id,
-                });
-                await nouPartit.save();
-                partitsAGuardar.push(nouPartit);
-                partitsProcessatsIDs.add(nouPartit._id.toString());
-            }
-        }
-
-        // Esborrar partits orfes (que ja no estan a la llista)
-        const partitsAEsborrar = partitsExistents.filter(
-            p => !partitsProcessatsIDs.has(p._id.toString())
-        );
-        for (const partit of partitsAEsborrar) {
-            await Partit.findByIdAndDelete(partit._id);
-        }
-
-        // 🗑️ NETEJAR REFERÈNCIES A L'USUARI
-        // Buidem 'competicionsCreades' I 'apostesCreades'
+        // 🧹 NETEJAR REFERÈNCIES A L'USUARI
+        console.log("  🧹 Netejant referències d'usuari...");
         await User.findByIdAndUpdate(req.user.id, {
             $set: {
                 competicionsCreades: [],
                 apostesCreades: [],
             },
         });
+        console.log("  ✅ Referències netejades");
 
+        // 🔄 PROCESSAR PARTITS - Filtrar només partits vàlids
+        console.log("  🔄 Processant partits...");
+        console.log("    - Partits rebuts:", partits.length);
+        
+        // Filtrar i netejar partits: eliminar _id temporal i camps no necessaris
+        const partitsNetejats = partits
+            .filter(p => {
+                // Filtrar partits sense equips o amb equips buits
+                const hasTeams = (p.equip1 && p.equip1.trim()) || (p.equip2 && p.equip2.trim());
+                return hasTeams;
+            })
+            .map(p => {
+                // Eliminar el _id temporal del frontend (és un timestamp, no un ObjectId vàlid)
+                const { id, _id, ...partitNetejat } = p;
+                return partitNetejat;
+            });
+        
+        console.log("    - Partits vàlids (després de filtrar):", partitsNetejats.length);
+
+        // CREAR NOVA COMPETICIÓ amb partits com a subdocuments
+        console.log("  💾 Creant nova competició...");
         const novaCompeticio = new Competició({
             nomCompeticio,
             tipus,
-            partits,
+            partits: partitsNetejats, // ✅ Els partits són subdocuments, no ObjectIds
             organitzadorId: req.user.id,
         });
         await novaCompeticio.save();
+        console.log("  ✅ Competició creada amb ID:", novaCompeticio._id);
+        console.log("    - Partits guardats:", novaCompeticio.partits.length);
 
+        console.log("  🔗 Actualitzant referència d'usuari...");
         await User.findByIdAndUpdate(req.user.id, {
             $push: { competicionsCreades: novaCompeticio._id },
         });
+        console.log("  ✅ Referència actualitzada");
+
+        console.log("🟢 ═══════════════════════════════════════════════════");
+        console.log("✅ [COMPETICIÓ] Competició creada correctament!");
+        console.log("🟢 ═══════════════════════════════════════════════════");
+        
         res.status(201).json({
             message: "Competició creada correctament!",
             id: novaCompeticio._id,
         });
     } catch (err) {
-        console.error("❌ Error a POST /competicions:", err);
+        console.log("🟢 ═══════════════════════════════════════════════════");
+        console.error("❌ [COMPETICIÓ] ERROR EN CREAR COMPETICIÓ");
+        console.log("🟢 ═══════════════════════════════════════════════════");
+        console.error("  💥 Error:", err.message);
+        console.error("  📚 Stack trace:");
+        console.error(err.stack);
+        console.log("🟢 ═══════════════════════════════════════════════════");
         res.status(500).json({ error: "Error intern del servidor." });
     }
 });
