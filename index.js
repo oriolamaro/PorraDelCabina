@@ -965,6 +965,17 @@ app.post("/competicions", authMiddleware, async (req, res) => {
         console.log("  🔄 Processant partits...");
         console.log("    - Partits rebuts:", partits.length);
         
+        // Log each match received
+        console.log("  📋 Detalls dels partits rebuts:");
+        partits.forEach((p, idx) => {
+            console.log(`    [${idx + 1}] ${p.equip1 || '???'} vs ${p.equip2 || '???'}`);
+            console.log(`        - resultatEquip1: ${p.resultatEquip1}`);
+            console.log(`        - resultatEquip2: ${p.resultatEquip2}`);
+            console.log(`        - guanyadorPartit: ${p.guanyadorPartit || 'NULL'}`);
+            console.log(`        - estatPartit: ${p.estatPartit || 'NULL'}`);
+            console.log(`        - round: ${p.round}, position: ${p.position}`);
+        });
+        
         // Filtrar i netejar partits: eliminar _id temporal i camps no necessaris
         const partitsNetejats = partits
             .filter(p => {
@@ -979,6 +990,16 @@ app.post("/competicions", authMiddleware, async (req, res) => {
             });
         
         console.log("    - Partits vàlids (després de filtrar):", partitsNetejats.length);
+        
+        // Log cleaned matches
+        console.log("  📋 Partits netejats per guardar:");
+        partitsNetejats.forEach((p, idx) => {
+            console.log(`    [${idx + 1}] ${p.equip1 || '???'} vs ${p.equip2 || '???'}`);
+            console.log(`        - resultatEquip1: ${p.resultatEquip1}`);
+            console.log(`        - resultatEquip2: ${p.resultatEquip2}`);
+            console.log(`        - guanyadorPartit: ${p.guanyadorPartit || 'NULL'}`);
+            console.log(`        - estatPartit: ${p.estatPartit || 'NULL'}`);
+        });
 
         // CREAR NOVA COMPETICIÓ amb partits com a subdocuments
         console.log("  💾 Creant nova competició...");
@@ -991,6 +1012,16 @@ app.post("/competicions", authMiddleware, async (req, res) => {
         await novaCompeticio.save();
         console.log("  ✅ Competició creada amb ID:", novaCompeticio._id);
         console.log("    - Partits guardats:", novaCompeticio.partits.length);
+        
+        // Verify what was actually saved
+        console.log("  🔍 Verificant dades guardades a MongoDB:");
+        novaCompeticio.partits.forEach((p, idx) => {
+            console.log(`    [${idx + 1}] ${p.equip1 || '???'} vs ${p.equip2 || '???'}`);
+            console.log(`        - resultatEquip1: ${p.resultatEquip1} (type: ${typeof p.resultatEquip1})`);
+            console.log(`        - resultatEquip2: ${p.resultatEquip2} (type: ${typeof p.resultatEquip2})`);
+            console.log(`        - guanyadorPartit: ${p.guanyadorPartit || 'NULL'}`);
+            console.log(`        - estatPartit: ${p.estatPartit || 'NULL'}`);
+        });
 
         console.log("  🔗 Actualitzant referència d'usuari...");
         await User.findByIdAndUpdate(req.user.id, {
