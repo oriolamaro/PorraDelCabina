@@ -1039,10 +1039,41 @@ app.get("/competicions/meva", authMiddleware, async (req, res) => {
 
 app.put("/competicions/:id", authMiddleware, async (req, res) => {
     try {
-        if (req.user.role !== "organitzador")
+        console.log("🔵 ═══════════════════════════════════════════════════");
+        console.log("🔵 [UPDATE COMPETICIÓ] Actualitzant competició");
+        console.log("🔵 ═══════════════════════════════════════════════════");
+        console.log("  👤 User:", req.user.username, "(", req.user.id, ")");
+        console.log("  🆔 Competition ID:", req.params.id);
+        
+        if (req.user.role !== "organitzador") {
+            console.log("❌ [UPDATE] Accés denegat: no és organitzador");
             return res.status(403).json({ error: "Acces denegat." });
+        }
+        
         const { nomCompeticio, tipus, partits } = req.body;
+        console.log("  📋 Dades rebudes:");
+        console.log("    - nomCompeticio:", nomCompeticio);
+        console.log("    - tipus:", tipus);
+        console.log("    - partits:", Array.isArray(partits) ? `Array(${partits.length})` : typeof partits);
+        
+        // Log match results summary
+        if (Array.isArray(partits)) {
+            const partitsAmbResultats = partits.filter(p => 
+                p.resultatEquip1 !== null && p.resultatEquip1 !== undefined &&
+                p.resultatEquip2 !== null && p.resultatEquip2 !== undefined
+            );
+            console.log("    - Partits amb resultats:", partitsAmbResultats.length);
+            
+            if (partitsAmbResultats.length > 0) {
+                console.log("  📊 Resultats detectats:");
+                partitsAmbResultats.forEach((p, idx) => {
+                    console.log(`    [${idx + 1}] ${p.equip1 || '???'} ${p.resultatEquip1}-${p.resultatEquip2} ${p.equip2 || '???'}`);
+                    console.log(`        → Guanyador: ${p.guanyadorPartit || 'NULL'} | Estat: ${p.estatPartit || 'pendent'}`);
+                });
+            }
+        }
 
+        console.log("  💾 Actualitzant a MongoDB...");
         const competicioActualitzada = await Competició.findOneAndUpdate(
             { _id: req.params.id, organitzadorId: req.user.id },
             { nomCompeticio, tipus, partits },
@@ -1050,14 +1081,35 @@ app.put("/competicions/:id", authMiddleware, async (req, res) => {
         );
 
         if (!competicioActualitzada) {
+            console.log("❌ [UPDATE] Competició no trobada");
             return res.status(404).json({
                 error: "Competició no trobada o no tens permisos per editar-la.",
             });
         }
 
+        console.log("  ✅ Competició actualitzada!");
+        console.log("    - Partits guardats:", competicioActualitzada.partits.length);
+        
+        // Verify results were saved
+        const partitsGuardatsAmbResultats = competicioActualitzada.partits.filter(p =>
+            p.resultatEquip1 !== null && p.resultatEquip1 !== undefined &&
+            p.resultatEquip2 !== null && p.resultatEquip2 !== undefined
+        );
+        console.log("    - Partits amb resultats guardats:", partitsGuardatsAmbResultats.length);
+        
+        console.log("🔵 ═══════════════════════════════════════════════════");
+        console.log("✅ [UPDATE COMPETICIÓ] Actualització completada!");
+        console.log("🔵 ═══════════════════════════════════════════════════");
+
         res.json({ message: "Competició actualitzada correctament!" });
     } catch (err) {
-        console.error(`❌ Error a PUT /competicions/${req.params.id}:`, err);
+        console.log("🔵 ═══════════════════════════════════════════════════");
+        console.error("❌ [UPDATE COMPETICIÓ] ERROR");
+        console.log("🔵 ═══════════════════════════════════════════════════");
+        console.error("  💥 Error:", err.message);
+        console.error("  📚 Stack trace:");
+        console.error(err.stack);
+        console.log("🔵 ═══════════════════════════════════════════════════");
         res.status(500).json({ error: "Error intern del servidor." });
     }
 });
