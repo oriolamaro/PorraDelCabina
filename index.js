@@ -623,14 +623,23 @@ app.get("/gestiona", authMiddleware, async (req, res) => {
 // ───────────────────────────────────────────────────────────
 app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
     try {
+        console.log("🔵 ═══════════════════════════════════════════════════");
+        console.log("🔵 [RESULTAT] Nova petició rebuda");
+        console.log("🔵 ═══════════════════════════════════════════════════");
+        console.log("  📋 partitId:", req.params.partitId);
+        console.log("  📋 Body:", JSON.stringify(req.body, null, 2));
+        console.log("  👤 User:", req.user.username, "(", req.user.role, ")");
+        
         // 1. Validació de Rol (Només organitzadors)
         if (req.user.role !== "organitzador") {
+            console.log("❌ [RESULTAT] Accés denegat: no és organitzador");
             return res
                 .status(403)
                 .json({
                     error: "Accés denegat. Només els organitzadors poden posar resultats.",
                 });
         }
+        console.log("  ✅ Rol validat: organitzador");
 
         const { partitId } = req.params;
         // Dades rebudes des del Popup
@@ -638,24 +647,33 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
             equip1Resultat,
             equip2Resultat,
             guanyadorPartit,
-            nextMatchDate,
-            nextMatchApostable,
         } = req.body;
         const organitzadorId = req.user.id;
 
         // 2. Validació d'Entrades
+        console.log("  🔍 Validant entrades...");
+        console.log("    - equip1Resultat:", equip1Resultat, "(type:", typeof equip1Resultat, ")");
+        console.log("    - equip2Resultat:", equip2Resultat, "(type:", typeof equip2Resultat, ")");
+        console.log("    - guanyadorPartit:", guanyadorPartit);
+        
         if (
             typeof equip1Resultat !== "number" ||
             typeof equip2Resultat !== "number" ||
             equip1Resultat < 0 ||
             equip2Resultat < 0
         ) {
+            console.log("❌ [RESULTAT] Resultats invàlids");
             return res
                 .status(400)
                 .json({ error: "Els resultats han de ser números positius." });
         }
+        console.log("  ✅ Entrades vàlides");
 
         // 3. Trobar la Competició i el Partit (i validar permisos)
+        console.log("  🔍 Buscant competició...");
+        console.log("    - organitzadorId:", organitzadorId);
+        console.log("    - partitId:", partitId);
+        
         // Busquem la competició que pertany a l'usuari I que conté el partit
         const competicio = await Competició.findOne({
             organitzadorId: organitzadorId,
@@ -663,6 +681,7 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
         });
 
         if (!competicio) {
+            console.log("❌ [RESULTAT] Competició no trobada");
             return res
                 .status(404)
                 .json({
@@ -670,9 +689,15 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
                 });
         }
 
+        console.log("  ✅ Competició trobada:", competicio._id);
+        console.log("    - Nom:", competicio.nomCompeticio);
+        console.log("    - Tipus:", competicio.tipus);
+        console.log("    - Total partits:", competicio.partits.length);
+
         // Extreiem el subdocument del partit
         const partit = competicio.partits.id(partitId);
         if (!partit) {
+            console.log("❌ [RESULTAT] Partit no trobat dins la competició");
             return res
                 .status(404)
                 .json({
@@ -680,8 +705,16 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
                 });
         }
 
+        console.log("  ✅ Partit trobat:");
+        console.log("    - Equips:", partit.equip1 || partit.team1, "vs", partit.equip2 || partit.team2);
+        console.log("    - Round:", partit.round, "| Position:", partit.position);
+        console.log("    - Estat:", partit.estatPartit);
+        console.log("    - Data:", partit.data);
+
         // 4. Validació de Data (El partit ha d'haver començat)
+        console.log("  🔍 Validant data...");
         if (!partit.data) {
+            console.log("❌ [RESULTAT] Partit sense data assignada");
             return res
                 .status(400)
                 .json({
@@ -689,21 +722,30 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
                 });
         }
         if (new Date(partit.data) > new Date()) {
+            console.log("❌ [RESULTAT] El partit encara no ha començat");
+            console.log("    - Data partit:", partit.data);
+            console.log("    - Data actual:", new Date());
             return res
                 .status(400)
                 .json({
                     error: "No es pot posar un resultat a un partit que encara no ha començat.",
                 });
         }
+        console.log("  ✅ Data vàlida");
 
         // 5. Validació de Lògica de Competició (Empats i Penals)
         const isEmpat = equip1Resultat === equip2Resultat;
+        console.log("  🔍 Validant lògica de l'empat...");
+        console.log("    - És empat?", isEmpat);
+        console.log("    - Tipus competició:", competicio.tipus);
+        console.log("    - Guanyador rebut:", guanyadorPartit);
 
         if (
             competicio.tipus === "classificatori" &&
             isEmpat &&
             !guanyadorPartit
         ) {
+            console.log("❌ [RESULTAT] Empat sense guanyador en classificatori");
             // ERROR: És un classificatori, hi ha empat, i no s'ha enviat guanyador de penals.
             return res
                 .status(400)
@@ -717,6 +759,11 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
             guanyadorPartit !== (partit.equip1 || partit.team1) &&
             guanyadorPartit !== (partit.equip2 || partit.team2)
         ) {
+            console.log("❌ [RESULTAT] Guanyador no coincideix amb el resultat");
+            console.log("    - Resultat:", equip1Resultat, "-", equip2Resultat);
+            console.log("    - Guanyador rebut:", guanyadorPartit);
+            console.log("    - Equip1:", partit.equip1 || partit.team1);
+            console.log("    - Equip2:", partit.equip2 || partit.team2);
             // ERROR: El resultat no és empat, però el 'guanyadorPartit' enviat no coincideix amb el guanyador real
             return res
                 .status(400)
@@ -724,21 +771,29 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
                     error: "El guanyador no coincideix amb el resultat (no empat).",
                 });
         }
+        console.log("  ✅ Lògica validada correctament");
 
         // 6. Actualització a la Base de Dades
+        console.log("  💾 Actualitzant partit...");
         // Mongoose pot gestionar l'actualització de subdocuments directament
         partit.resultatEquip1 = equip1Resultat;
         partit.resultatEquip2 = equip2Resultat;
         partit.guanyadorPartit = guanyadorPartit; // Guardem el guanyador (equip o null)
         partit.estatPartit = "finalitzat";
+        console.log("  ✅ Dades actualitzades localment");
 
         // 7. Lògica de Torneig (Avançar Ronda)
         if (competicio.tipus === "classificatori" && guanyadorPartit) {
+            console.log("  🏆 Aquest és un torneig amb guanyador. Avançant ronda...");
             const currentRound = partit.round;
             const currentPos = partit.position;
             const nextRound = currentRound + 1;
             const nextPos = Math.floor(currentPos / 2);
             const isTeam1InNextMatch = currentPos % 2 === 0; // Parell -> equip1, Imparell -> equip2
+
+            console.log("    - Round actual:", currentRound, "| Posició:", currentPos);
+            console.log("    - Següent round:", nextRound, "| Posició:", nextPos);
+            console.log("    - Guanyador anirà a:", isTeam1InNextMatch ? "equip1" : "equip2");
 
             // Buscar el partit de la següent ronda
             let nextMatch = competicio.partits.find(
@@ -746,6 +801,7 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
             );
 
             if (!nextMatch) {
+                console.log("    - Partit de següent ronda no existeix. Creant...");
                 // Si no existeix, el creem
                 nextMatch = {
                     round: nextRound,
@@ -753,33 +809,41 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
                     equip1: isTeam1InNextMatch ? guanyadorPartit : null,
                     equip2: !isTeam1InNextMatch ? guanyadorPartit : null,
                     estatPartit: "pendent",
-                    // ✅ APLICAR DATA I APOSTABLE
-                    data: nextMatchDate ? new Date(nextMatchDate) : null,
-                    apostable: nextMatchApostable || false,
+                    data: null,
+                    apostable: false,
                 };
                 competicio.partits.push(nextMatch);
+                console.log("    ✅ Nou partit creat a la següent ronda");
             } else {
+                console.log("    - Partit de següent ronda ja existeix. Actualitzant...");
                 // Si existeix, l'actualitzem
                 if (isTeam1InNextMatch) {
                     nextMatch.equip1 = guanyadorPartit;
+                    console.log("      - Actualitzat equip1:", guanyadorPartit);
                 } else {
                     nextMatch.equip2 = guanyadorPartit;
+                    console.log("      - Actualitzat equip2:", guanyadorPartit);
                 }
-                // ✅ ACTUALITZAR DATA I APOSTABLE (Si s'han passat)
-                if (nextMatchDate) nextMatch.data = new Date(nextMatchDate);
-                if (nextMatchApostable !== undefined)
-                    nextMatch.apostable = nextMatchApostable;
             }
         }
 
+        console.log("  💾 Guardant competició a MongoDB...");
         await competicio.save(); // Guardem el document 'Competició' pare
+        console.log("  ✅ Competició guardada correctament!");
 
+        console.log("🔵 ═══════════════════════════════════════════════════");
+        console.log("✅ [RESULTAT] Procés completat amb èxit!");
+        console.log("🔵 ═══════════════════════════════════════════════════");
+        
         res.status(200).json({ message: "Resultat guardat correctament." });
     } catch (err) {
-        console.error(
-            `❌ Error a POST /partits/${req.params.partitId}/resultat:`,
-            err
-        );
+        console.log("🔵 ═══════════════════════════════════════════════════");
+        console.error("❌ [RESULTAT] ERROR EN EL SERVIDOR");
+        console.log("🔵 ═══════════════════════════════════════════════════");
+        console.error("  💥 Error:", err.message);
+        console.error("  📚 Stack trace:");
+        console.error(err.stack);
+        console.log("🔵 ═══════════════════════════════════════════════════");
         res.status(500).json({ error: "Error intern del servidor." });
     }
 });
