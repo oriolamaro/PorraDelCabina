@@ -784,6 +784,23 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
 
         // 7. Lògica de Torneig (Avançar Ronda)
         if (competicio.tipus === "classificatori" && guanyadorPartit) {
+            
+            // 🛑 COMPROVAR SI ÉS LA FINAL (si estem a la ronda màxima)
+            const maxRound = Math.max(...competicio.partits.map(p => p.round || 0));
+            
+            if (partit.round >= maxRound) {
+                console.log("  🏆 AQUEST PARTIT ERA LA FINAL! TENIM GUANYADOR DEL TORNEIG.");
+                console.log("    - Guanyador:", guanyadorPartit);
+
+                // Guardem el resultat de la final
+                await competicio.save();
+                
+                return res.status(200).json({ 
+                    message: `El guanyador del torneig és ${guanyadorPartit}`,
+                    tournamentWinner: guanyadorPartit 
+                });
+            }
+
             console.log("  🏆 Aquest és un torneig amb guanyador. Avançant ronda...");
             const currentRound = partit.round;
             const currentPos = partit.position;
