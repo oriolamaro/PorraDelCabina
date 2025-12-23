@@ -931,14 +931,35 @@ app.post("/competicions", authMiddleware, async (req, res) => {
         }
         console.log("  ✅ No hi ha apostes que bloquegin");
 
-        // 🗑️ ELIMINAR COMPETICIONS ANTERIORS
+        // 🗑️ ELIMINAR COMPETICIONS ANTERIORS - PERÒ PRIMER GUARDAR RESULTATS
         console.log("  🗑️ Buscant competicions anteriors...");
         const competicionsAntigues = await Competició.find({
             organitzadorId: req.user.id,
         });
         console.log("    - Competicions anteriors trobades:", competicionsAntigues.length);
 
+        // Guardar resultats de partits anteriors abans d'esborrar
+        const resultatsGuardats = new Map();
         if (competicionsAntigues.length > 0) {
+            console.log("  💾 Guardant resultats de partits anteriors...");
+            competicionsAntigues.forEach(comp => {
+                comp.partits.forEach(partit => {
+                    if (partit.resultatEquip1 !== null && partit.resultatEquip1 !== undefined &&
+                        partit.resultatEquip2 !== null && partit.resultatEquip2 !== undefined) {
+                        // Clau per identificar el partit: equips + round + position
+                        const key = `${partit.equip1}|${partit.equip2}|${partit.round}|${partit.position}`;
+                        resultatsGuardats.set(key, {
+                            resultatEquip1: partit.resultatEquip1,
+                            resultatEquip2: partit.resultatEquip2,
+                            guanyadorPartit: partit.guanyadorPartit,
+                            resultatPartit: partit.resultatPartit,
+                            estatPartit: partit.estatPartit
+                        });
+                    }
+                });
+            });
+            console.log("    ✅ Resultats guardats:", resultatsGuardats.size);
+
             console.log("    - Esborrant competicions anteriors...");
             await Competició.deleteMany({ organitzadorId: req.user.id });
             console.log("    ✅ Competicions anteriors esborrades");
@@ -961,7 +982,7 @@ app.post("/competicions", authMiddleware, async (req, res) => {
         });
         console.log("  ✅ Referències netejades");
 
-        // 🔄 PROCESSAR PARTITS - Filtrar només partits vàlids
+        // 🔄 PROCESSAR PARTITS - Restaurar resultats guardats
         console.log("  🔄 Processant partits...");
         console.log("    - Partits rebuts:", partits.length);
         
@@ -986,10 +1007,28 @@ app.post("/competicions", authMiddleware, async (req, res) => {
             .map(p => {
                 // Eliminar el _id temporal del frontend (és un timestamp, no un ObjectId vàlid)
                 const { id, _id, ...partitNetejat } = p;
+                
+                // Restaurar resultats guardats si existeixen
+                const key = `${partitNetejat.equip1}|${partitNetejat.equip2}|${partitNetejat.round}|${partitNetejat.position}`;
+                const resultatGuardat = resultatsGuardats.get(key);
+                
+                if (resultatGuardat) {
+                    console.log(`    - Restaurat resultat per ${partitNetejat.equip1} vs ${partitNetejat.equip2}`);
+                    // Aplicar resultats guardats
+                    return {
+                        ...partitNetejat,
+                        resultatEquip1: resultatGuardat.resultatEquip1,
+                        resultatEquip2: resultatGuardat.resultatEquip2,
+                        guanyadorPartit: resultatGuardat.guanyadorPartit,
+                        resultatPartit: resultatGuardat.resultatPartit,
+                        estatPartit: resultatGuardat.estatPartit
+                    };
+                }
+                
                 return partitNetejat;
             });
         
-        console.log("    - Partits vàlids (després de filtrar):", partitsNetejats.length);
+        console.log("    - Partits vàlids (després de filtrar i restaurar resultats):", partitsNetejats.length);
         
         // Log cleaned matches
         console.log("  📋 Partits netejats per guardar:");
@@ -1000,6 +1039,46 @@ app.post("/competicions", authMiddleware, async (req, res) => {
             console.log(`        - guanyadorPartit: ${p.guanyadorPartit || 'NULL'}`);
             console.log(`        - estatPartit: ${p.estatPartit || 'NULL'}`);
         });
+
+        // AVANÇAR GUANYADORS A SEGÜENTS RONDES
+        console.log("  ⏩ Avançant guanyadors a següents rondes...");
+        // Crear un mapa per accedir ràpidament als partits per round i position
+        const partitsMap = new Map();
+        partitsNetejats.forEach(p => {
+            if (p.round !== undefined && p.position !== undefined) {
+                const key = `${p.round}|${p.position}`;
+                partitsMap.set(key, p);
+            }
+        });
+
+        partitsNetejats.forEach(partit => {
+            if (partit.guanyadorPartit && partit.round !== undefined && partit.position !== undefined) {
+                // Calcular posició de següent ronda
+                const nextRound = partit.round + 1;
+                const nextPosition = Math.floor(partit.position / 2);
+                const isTeam1InNextMatch = partit.position % 2 === 0;
+                
+                // Buscar partit de següent ronda
+                const nextKey = `${nextRound}|${nextPosition}`;
+                const nextMatch = partitsMap.get(nextKey);
+                
+                if (nextMatch) {
+                    // Actualitzar equip a la següent ronda
+                    if (isTeam1InNextMatch) {
+                        if (nextMatch.equip1 !== partit.guanyadorPartit) {
+                            nextMatch.equip1 = partit.guanyadorPartit;
+                            console.log(`    - Avançat ${partit.guanyadorPartit} a equip1 de round ${nextRound}, pos ${nextPosition}`);
+                        }
+                    } else {
+                        if (nextMatch.equip2 !== partit.guanyadorPartit) {
+                            nextMatch.equip2 = partit.guanyadorPartit;
+                            console.log(`    - Avançat ${partit.guanyadorPartit} a equip2 de round ${nextRound}, pos ${nextPosition}`);
+                        }
+                    }
+                }
+            }
+        });
+        console.log("  ✅ Guanyadors avançats.");
 
         // CREAR NOVA COMPETICIÓ amb partits com a subdocuments
         console.log("  💾 Creant nova competició...");
