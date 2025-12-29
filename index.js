@@ -145,7 +145,10 @@ const competicioSchema = new mongoose.Schema({
         enum: ["classificatori", "grups", "individuals"],
         required: true,
     },
-    equips: [{ type: String }], // Llista d'equips participants
+    equips: [{
+        nom: { type: String, required: true },
+        color: { type: String, default: "#1FFF94" }
+    }], // Llista d'equips participants amb nom i color
     dataCreacio: { type: Date, default: Date.now },
     partits: [partitIncrustatSchema],
 });
