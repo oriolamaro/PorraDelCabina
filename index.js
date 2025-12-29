@@ -145,6 +145,7 @@ const competicioSchema = new mongoose.Schema({
         enum: ["classificatori", "grups", "individuals"],
         required: true,
     },
+    equips: [{ type: String }], // Llista d'equips participants
     dataCreacio: { type: Date, default: Date.now },
     partits: [partitIncrustatSchema],
 });
@@ -920,11 +921,12 @@ app.post("/competicions", authMiddleware, async (req, res) => {
         }
         console.log("  ✅ Rol validat");
         
-        const { nomCompeticio, tipus, partits, confirmarBorrado } = req.body;
+        const { nomCompeticio, tipus, partits, equips, confirmarBorrado } = req.body;
         console.log("  📋 Dades rebudes:");
         console.log("    - nomCompeticio:", nomCompeticio);
         console.log("    - tipus:", tipus);
         console.log("    - partits:", Array.isArray(partits) ? `Array(${partits.length})` : typeof partits);
+        console.log("    - equips:", Array.isArray(equips) ? `Array(${equips.length})` : typeof equips);
         console.log("    - confirmarBorrado:", confirmarBorrado);
         
         if (!nomCompeticio || !tipus || !Array.isArray(partits)) {
@@ -1023,12 +1025,14 @@ app.post("/competicions", authMiddleware, async (req, res) => {
         const novaCompeticio = new Competició({
             nomCompeticio,
             tipus,
+            equips: Array.isArray(equips) ? equips : [], // ✅ Guardem equips participants
             partits: partitsNetejats, // ✅ Els partits són subdocuments, no ObjectIds
             organitzadorId: req.user.id,
         });
         await novaCompeticio.save();
         console.log("  ✅ Competició creada amb ID:", novaCompeticio._id);
         console.log("    - Partits guardats:", novaCompeticio.partits.length);
+        console.log("    - Equips guardats:", novaCompeticio.equips?.length || 0);
         
         // Verify what was actually saved
         console.log("  🔍 Verificant dades guardades a MongoDB:");
