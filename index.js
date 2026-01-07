@@ -939,6 +939,9 @@ app.post("/competicions", authMiddleware, async (req, res) => {
         console.log("  ✅ Camps obligatoris presents");
 
         // 🛡️ VERIFICACIÓ D'APOSTES EXISTENTS (EXCEPTE PORRA)
+        // 🛡️ VERIFICACIÓ D'APOSTES EXISTENTS (EXCEPTE PORRA)
+        // [MODIFICAT]: Eliminada la validació per permetre editar sense borrar apostes
+        /*
         console.log("  🔍 Verificant apostes existents...");
         if (!confirmarBorrado) {
             const betsExistents = await Quiniela.countDocuments({ creador: req.user.username });
@@ -952,6 +955,7 @@ app.post("/competicions", authMiddleware, async (req, res) => {
             }
         }
         console.log("  ✅ No hi ha apostes que bloquegin");
+        */
 
         // 🗑️ ELIMINAR COMPETICIONS ANTERIORS
         console.log("  🗑️ Buscant competicions anteriors...");
@@ -967,18 +971,22 @@ app.post("/competicions", authMiddleware, async (req, res) => {
         }
 
         // 🗑️ ELIMINAR QUINIELES SI CONFIRMAT
+        // 🗑️ ELIMINAR QUINIELES SI CONFIRMAT
+        // [MODIFICAT]: Eliminada la lògica d'esborrat per preservar les apostes
+        /*
         if (confirmarBorrado) {
             console.log("  🗑️ Esborrant quinieles...");
             const result = await Quiniela.deleteMany({ creador: req.user.username });
             console.log("    - Quinieles esborrades:", result.deletedCount);
         }
+        */
 
         // 🧹 NETEJAR REFERÈNCIES A L'USUARI
         console.log("  🧹 Netejant referències d'usuari...");
         await User.findByIdAndUpdate(req.user.id, {
             $set: {
                 competicionsCreades: [],
-                apostesCreades: [],
+                // apostesCreades: [], // [MODIFICAT]: No esborrem les referències a les apostes
             },
         });
         console.log("  ✅ Referències netejades");
