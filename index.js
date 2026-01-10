@@ -798,54 +798,55 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
 
                 // Guardem el resultat de la final
                 await competicio.save();
-                
-                return res.status(200).json({ 
-                    message: `El guanyador del torneig és ${guanyadorPartit}`,
-                    tournamentWinner: guanyadorPartit 
+
+                res.json({
+                    message: "Resultat guardat!",
+                    torneigFinalitzat: true,
+                    guanyadorTorneig: guanyadorPartit
                 });
+                return;
             }
 
-            console.log("  🏆 Aquest és un torneig amb guanyador. Avançant ronda...");
-            const currentRound = partit.round;
-            const currentPos = partit.position;
-            const nextRound = currentRound + 1;
-            const nextPos = Math.floor(currentPos / 2);
-            const isTeam1InNextMatch = currentPos % 2 === 0; // Parell -> equip1, Imparell -> equip2
+            console.log("  🔄 Avançant ronda...");
+            const nextRound = partit.round + 1;
+            const nextPosition = Math.floor(partit.position / 2);
+            const isFirstTeam = partit.position % 2 === 0;
 
-            console.log("    - Round actual:", currentRound, "| Posició:", currentPos);
-            console.log("    - Següent round:", nextRound, "| Posició:", nextPos);
-            console.log("    - Guanyador anirà a:", isTeam1InNextMatch ? "equip1" : "equip2");
+            console.log(`    - Buscant match: Round ${nextRound}, Pos ${nextPosition}`);
 
-            // Buscar el partit de la següent ronda
             let nextMatch = competicio.partits.find(
-                (p) => p.round === nextRound && p.position === nextPos
+                p => p.round === nextRound && p.position === nextPosition
             );
 
-            if (!nextMatch) {
-                console.log("    - Partit de següent ronda no existeix. Creant...");
-                // Si no existeix, el creem
-                nextMatch = {
-                    round: nextRound,
-                    position: nextPos,
-                    equip1: isTeam1InNextMatch ? guanyadorPartit : null,
-                    equip2: !isTeam1InNextMatch ? guanyadorPartit : null,
-                    estatPartit: "pendent",
-                    data: null,
-                    apostable: false,
-                };
-                competicio.partits.push(nextMatch);
-                console.log("    ✅ Nou partit creat a la següent ronda");
-            } else {
-                console.log("    - Partit de següent ronda ja existeix. Actualitzant...");
-                // Si existeix, l'actualitzem
-                if (isTeam1InNextMatch) {
+            if (nextMatch) {
+                console.log("    - Match trobat! Actualitzant equip...");
+                if (isFirstTeam) {
                     nextMatch.equip1 = guanyadorPartit;
-                    console.log("      - Actualitzat equip1:", guanyadorPartit);
                 } else {
                     nextMatch.equip2 = guanyadorPartit;
-                    console.log("      - Actualitzat equip2:", guanyadorPartit);
                 }
+                
+                // Si el partit ja té els dos equips, el marquem com a pendent (si estava cancel·lat o null)
+                // i assegurem que té data (opcional, potser l'usuari la posa després)
+            } else {
+                console.log("    - Match NO trobat. Creant-lo automàticament...");
+                // Creem el nou partit de la següent ronda
+                const nouPartitRonda = {
+                    equip1: isFirstTeam ? guanyadorPartit : "Pendent",
+                    equip2: !isFirstTeam ? guanyadorPartit : "Pendent",
+                    round: nextRound,
+                    position: nextPosition,
+                    grup: null,
+                    data: null, // Data a definir per l'usuari
+                    apostable: false,
+                    estatPartit: "pendent",
+                    resultatEquip1: null,
+                    resultatEquip2: null,
+                    guanyadorPartit: null
+                };
+                competicio.partits.push(nouPartitRonda);
             }
+                
         }
 
         console.log("  💾 Guardant competició a MongoDB...");
