@@ -789,10 +789,18 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
         // 7. Lògica de Torneig (Avançar Ronda)
         if (competicio.tipus === "classificatori" && guanyadorPartit) {
             
-            // 🛑 COMPROVAR SI ÉS LA FINAL (si estem a la ronda màxima)
-            const maxRound = Math.max(...competicio.partits.map(p => p.round || 0));
+            // 🛑 COMPROVAR SI ÉS LA FINAL
+            // No podem basar-nos en partits existents perquè potser encara no s'han creat les rondes següents.
+            // Ho calculem segons el numero d'equips: FinalRound = ceil(log2(numEquips)) - 1
+            const numEquips = competicio.equips ? competicio.equips.length : 0;
+            const totalRounds = Math.ceil(Math.log2(numEquips));
+            const finalRoundIndex = totalRounds - 1;
+
+            console.log(`    - Ronda actual: ${partit.round}`);
+            console.log(`    - Equips totals: ${numEquips} => Rodes totals: ${totalRounds}`);
+            console.log(`    - Ronda Final calculada: ${finalRoundIndex}`);
             
-            if (partit.round >= maxRound) {
+            if (partit.round >= finalRoundIndex) {
                 console.log("  🏆 AQUEST PARTIT ERA LA FINAL! TENIM GUANYADOR DEL TORNEIG.");
                 console.log("    - Guanyador:", guanyadorPartit);
 
