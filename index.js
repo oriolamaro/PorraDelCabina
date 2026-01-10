@@ -822,22 +822,21 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
                 console.log("    - Match trobat! Actualitzant equip...");
                 if (isFirstTeam) {
                     nextMatch.equip1 = guanyadorPartit;
+                    console.log(`      -> Equip 1 set to ${guanyadorPartit}`);
                 } else {
                     nextMatch.equip2 = guanyadorPartit;
+                    console.log(`      -> Equip 2 set to ${guanyadorPartit}`);
                 }
-                
-                // Si el partit ja té els dos equips, el marquem com a pendent (si estava cancel·lat o null)
-                // i assegurem que té data (opcional, potser l'usuari la posa després)
+                nextMatch.estatPartit = "pendent"; 
             } else {
                 console.log("    - Match NO trobat. Creant-lo automàticament...");
-                // Creem el nou partit de la següent ronda
                 const nouPartitRonda = {
                     equip1: isFirstTeam ? guanyadorPartit : "Pendent",
                     equip2: !isFirstTeam ? guanyadorPartit : "Pendent",
                     round: nextRound,
                     position: nextPosition,
                     grup: null,
-                    data: null, // Data a definir per l'usuari
+                    data: null, 
                     apostable: false,
                     estatPartit: "pendent",
                     resultatEquip1: null,
@@ -845,14 +844,14 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
                     guanyadorPartit: null
                 };
                 competicio.partits.push(nouPartitRonda);
+                console.log("    ✅ Pushed new match. Length:", competicio.partits.length);
             }
-                
         }
 
         console.log("  💾 Guardant competició a MongoDB...");
-        competicio.markModified('partits'); // Notifiquem a Mongoose que hem tocat l'array de partits
-        await competicio.save(); // Guardem el document 'Competició' pare
-        console.log("  ✅ Competició guardada correctament!");
+        competicio.markModified('partits');
+        const savedDoc = await competicio.save(); 
+        console.log("  ✅ Competició guardada! Partits count:", savedDoc.partits.length);
 
         console.log("🔵 ═══════════════════════════════════════════════════");
         console.log("✅ [RESULTAT] Procés completat amb èxit!");
