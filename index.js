@@ -850,6 +850,7 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
         }
 
         console.log("  💾 Guardant competició a MongoDB...");
+        competicio.markModified('partits'); // Notifiquem a Mongoose que hem tocat l'array de partits
         await competicio.save(); // Guardem el document 'Competició' pare
         console.log("  ✅ Competició guardada correctament!");
 
