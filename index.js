@@ -929,9 +929,9 @@ async function crearApostaPerPartit(partit, nomCompeticio, creadorUsername, crea
         const equip2 = partit.equip2 || partit.team2 || "Equip 2";
         
         // Generate unique title
-        let titol = `${nomCompeticio} - ${equip1} vs ${equip2}`;
+        let titol = `${equip1} vs ${equip2}`;
         if (partit.grup) {
-            titol = `${nomCompeticio} - ${partit.grup} - ${equip1} vs ${equip2}`;
+            titol = `${partit.grup} - ${equip1} vs ${equip2}`;
         } else if (partit.round !== undefined) {
             const roundNames = ["Final", "Semifinal", "Quarts", "Vuitens", "Setzens"];
             const roundName = roundNames[partit.round] || `Round ${partit.round}`;
@@ -1229,19 +1229,26 @@ app.put("/competicions/:id", authMiddleware, async (req, res) => {
         for (let i = 0; i < partits.length; i++) {
             const partit = partits[i];
             
-            // Si el partit té _id i ja té aposta, preservar-la
-            if (partit._id && apostesExistents.has(partit._id.toString())) {
+            // PRIORITAT 1: Si el partit ja té apostaId (del frontend o base de dades), preservar-la
+            if (partit.apostaId) {
+                console.log(`    ✓ Aposta preservada (apostaId existent): ${partit.equip1 || partit.team1} vs ${partit.equip2 || partit.team2} (ID: ${partit.apostaId})`);
+                // Mantenir l'apostaId que ja té
+            }
+            // PRIORITAT 2: Si el partit té _id i existeix a la base de dades amb aposta, recuperar-la
+            else if (partit._id && apostesExistents.has(partit._id.toString())) {
                 partit.apostaId = apostesExistents.get(partit._id.toString());
-                console.log(`    ✓ Aposta preservada per partit existent: ${partit.equip1 || partit.team1} vs ${partit.equip2 || partit.team2}`);
+                console.log(`    ✓ Aposta recuperada de BD: ${partit.equip1 || partit.team1} vs ${partit.equip2 || partit.team2} (ID: ${partit.apostaId})`);
             } 
-            // Si no té aposta, crear-ne una de nova
-            else if (!partit.apostaId) {
+            // PRIORITAT 3: Si no té cap aposta, crear-ne una de nova
+            else {
                 const apostaId = await crearApostaPerPartit(partit, nomCompeticio, req.user.username, req.user.id);
                 if (apostaId) {
                     partit.apostaId = apostaId;
+                    console.log(`    ✅ Nova aposta creada: ${partit.equip1 || partit.team1} vs ${partit.equip2 || partit.team2} (ID: ${apostaId})`);
                 }
             }
         }
+
 
         console.log("  💾 Actualitzant a MongoDB...");
         const competicioActualitzada = await Competició.findOneAndUpdate(
