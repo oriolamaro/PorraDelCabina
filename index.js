@@ -1223,15 +1223,21 @@ app.put("/competicions/:id", authMiddleware, async (req, res) => {
                     // Indexar per _id
                     apostesExistents.set(p._id.toString(), p.apostaId);
                     
-                    // Indexar per contingut (equips + estat finalització)
+                    // Indexar per contingut (equips) - Usem array per gestionar duplicats (anada/tornada)
                     const equip1 = (p.equip1 || p.team1 || "").toLowerCase().trim();
                     const equip2 = (p.equip2 || p.team2 || "").toLowerCase().trim();
-                    const estaFinalitzat = p.estatPartit === "finalitzat" || 
-                                          (p.resultatEquip1 !== null && p.resultatEquip1 !== undefined &&
-                                           p.resultatEquip2 !== null && p.resultatEquip2 !== undefined);
                     
-                    const clauContingut = `${equip1}|${equip2}|${estaFinalitzat}`;
-                    apostesPerContingut.set(clauContingut, p.apostaId);
+                    const clauContingut = `${equip1}|${equip2}`;
+                    
+                    if (!apostesPerContingut.has(clauContingut)) {
+                        apostesPerContingut.set(clauContingut, []);
+                    }
+                    
+                    apostesPerContingut.get(clauContingut).push({
+                        apostaId: p.apostaId,
+                        data: p.data ? new Date(p.data).toISOString() : null,
+                        estat: p.estatPartit
+                    });
                 }
             });
             console.log("    - Apostes per _id:", apostesExistents.size);
@@ -1253,29 +1259,58 @@ app.put("/competicions/:id", authMiddleware, async (req, res) => {
                 partit.apostaId = apostesExistents.get(partit._id.toString());
                 console.log(`    ✓ Aposta recuperada per _id: ${partit.equip1 || partit.team1} vs ${partit.equip2 || partit.team2} (ID: ${partit.apostaId})`);
             } 
-            // PRIORITAT 3: Buscar aposta existent pel contingut (equips + estat)
+            // PRIORITAT 3: Buscar aposta existent pel contingut (equips) - Queue consumption
             else {
                 const equip1 = (partit.equip1 || partit.team1 || "").toLowerCase().trim();
                 const equip2 = (partit.equip2 || partit.team2 || "").toLowerCase().trim();
-                const estaFinalitzat = partit.estatPartit === "finalitzat" || 
-                                      (partit.resultatEquip1 !== null && partit.resultatEquip1 !== undefined &&
-                                       partit.resultatEquip2 !== null && partit.resultatEquip2 !== undefined);
                 
-                const clauContingut = `${equip1}|${equip2}|${estaFinalitzat}`;
+                const clauContingut = `${equip1}|${equip2}`;
+                
+                let foundBet = null;
                 
                 if (apostesPerContingut.has(clauContingut)) {
-                    // Aposta existent trobada pel contingut!
-                    partit.apostaId = apostesPerContingut.get(clauContingut);
-                    console.log(`    ✓ Aposta reutilitzada per contingut: ${partit.equip1 || partit.team1} vs ${partit.equip2 || partit.team2} (ID: ${partit.apostaId})`);
-                } else {
-                    // PRIORITAT 4: Crear nova aposta només si no existeix cap coincidència
+                    const candidats = apostesPerContingut.get(clauContingut);
+                    
+                    if (candidats && candidats.length > 0) {
+                        // Estratègia: 
+                        // 1. Buscar coincidència de data exacta (si existeix)
+                        // 2. Si no, agafar el primer disponible (FIFO)
+                        
+                        const incomingDate = partit.data ? new Date(partit.data).toISOString() : null;
+                        
+                        let matchIndex = -1;
+                        
+                        // Intent 1: Coincidència de data
+                        if (incomingDate) {
+                            matchIndex = candidats.findIndex(c => c.data === incomingDate);
+                        }
+                        
+                        // Intent 2: Primer disponible
+                        if (matchIndex === -1) {
+                            matchIndex = 0; // Agafem el primer
+                        }
+                        
+                        // Assignar i consumir (treure de la llista per no reutilitzar)
+                        const match = candidats[matchIndex];
+                        foundBet = match.apostaId;
+                        partit.apostaId = match.apostaId;
+                        
+                        console.log(`    ✓ Aposta reutilitzada per contingut (${incomingDate === match.data ? 'Data exacta' : 'Primer disp.'}): ${partit.equip1} vs ${partit.equip2} (ID: ${foundBet})`);
+                        
+                        // Eliminar de la llista de candidats disponibles
+                        candidats.splice(matchIndex, 1);
+                    }
+                }
+                
+                if (!foundBet) {
+                    // PRIORITAT 4: Crear nova aposta només si no existeix cap coincidència disponible
                     const apostaId = await crearApostaPerPartit(partit, nomCompeticio, req.user.username, req.user.id);
                     if (apostaId) {
                         partit.apostaId = apostaId;
                         console.log(`    ✅ Nova aposta creada: ${partit.equip1 || partit.team1} vs ${partit.equip2 || partit.team2} (ID: ${apostaId})`);
                         
-                        // Afegir al mapa de contingut per evitar duplicats en aquesta mateixa operació
-                        apostesPerContingut.set(clauContingut, apostaId);
+                        // NO afegim al mapa de candidats perquè és nou i ja està assignat a aquest partit
+                        // Si ve un altre duplicat exactament igual, se li crearà una altra aposta (correcte, són 2 partits nous iguals)
                     }
                 }
             }
