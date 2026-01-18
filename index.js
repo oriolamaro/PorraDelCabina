@@ -982,11 +982,63 @@ async function crearApostaPerPartit(partit, nomCompeticio, creadorUsername, crea
             });
             console.log(`    ✅ Aposta afegida a apostesCreades de l'organitzador`);
         }
-        
         return novaAposta._id;
     } catch (err) {
         console.error(`    ❌ Error creant aposta per partit:`, err.message);
         return null;
+    }
+}
+
+// ───────────────────────────────────────────────────────────
+// HELPER: SINCRONITZAR APOSTA (Actualitzar noms si canvien)
+// ───────────────────────────────────────────────────────────
+async function syncPartitAposta(partit, nomCompeticio) {
+    if (!partit.apostaId) return;
+
+    try {
+        const aposta = await Partit.findById(partit.apostaId);
+        if (!aposta) return;
+
+        const equip1 = partit.equip1 || partit.team1 || "Equip 1";
+        const equip2 = partit.equip2 || partit.team2 || "Equip 2";
+
+        // Si els equips de la competició són placeholders ("Equip X"), 
+        // i l'aposta ja té noms reals, NO sobreescrivim.
+        // Però si la competició té noms reals i l'aposta té "Equip X" o noms vells, actualitzem.
+        const isPlaceholder = (name) => name.toLowerCase().includes("equip") || name.toLowerCase().includes("team");
+        
+        // Si la competició té noms vàlids (no placeholders), intentem sincronitzar
+        if (!isPlaceholder(equip1) && !isPlaceholder(equip2)) {
+            
+            // Si l'aposta té noms diferents, actualitzem
+            if (aposta.equipA !== equip1 || aposta.equipB !== equip2) {
+                console.log(`    🔄 Sincronitzant aposta: ${aposta.equipA} vs ${aposta.equipB} -> ${equip1} vs ${equip2}`);
+                
+                // Regenerar títol
+                let titol = `${nomCompeticio} - ${equip1} vs ${equip2}`;
+                if (partit.grup) {
+                    titol = `${nomCompeticio} - ${partit.grup} - ${equip1} vs ${equip2}`;
+                } else if (partit.round !== undefined) {
+                    const roundNames = ["Final", "Semifinal", "Quarts", "Vuitens", "Setzens"];
+                    const roundName = roundNames[partit.round] || `Round ${partit.round}`;
+                    titol = `${roundName}: ${equip1} vs ${equip2}`;
+                }
+
+                aposta.titol = titol;
+                aposta.equipA = equip1;
+                aposta.equipB = equip2;
+                
+                // Actualitzar opcions mantenint "Empat"
+                // NOTA: Això podria desincronitzar apostes d'usuaris si havien apostat pel nom antic.
+                // Assumim que si els noms canvien, ningú hauria d'haver apostat seriosament encara.
+                aposta.opcions = [equip1, "Empat", equip2];
+                
+                await aposta.save();
+                console.log(`       ✅ Aposta actualitzada correctament`);
+            }
+        }
+    } catch (err) {
+        console.error(`    ⚠️ Error sincronitzant aposta:`, err.message);
     }
 }
 
@@ -1337,6 +1389,9 @@ app.put("/competicions/:id", authMiddleware, async (req, res) => {
                     }
                 }
             }
+            
+            // 🔄 SYNCHRONIZE BET (Update names if they changed from placeholder to real)
+            await syncPartitAposta(partit, nomCompeticio);
         }
 
 
