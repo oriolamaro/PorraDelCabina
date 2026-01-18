@@ -923,7 +923,7 @@ app.get("/competicions", async (req, res) => {
 // ───────────────────────────────────────────────────────────
 // HELPER: CREAR APOSTA PER A UN PARTIT
 // ───────────────────────────────────────────────────────────
-async function crearApostaPerPartit(partit, nomCompeticio, creadorUsername) {
+async function crearApostaPerPartit(partit, nomCompeticio, creadorUsername, creadorUserId) {
     try {
         const equip1 = partit.equip1 || partit.team1 || "Equip 1";
         const equip2 = partit.equip2 || partit.team2 || "Equip 2";
@@ -933,9 +933,9 @@ async function crearApostaPerPartit(partit, nomCompeticio, creadorUsername) {
         if (partit.grup) {
             titol = `${nomCompeticio} - ${partit.grup} - ${equip1} vs ${equip2}`;
         } else if (partit.round !== undefined) {
-            const roundNames = ["Final", "Semifinals", "Quarts", "Vuitens", "Setzens"];
+            const roundNames = ["Final", "Semifinal", "Quarts", "Vuitens", "Setzens"];
             const roundName = roundNames[partit.round] || `Round ${partit.round}`;
-            titol = `${nomCompeticio} - ${roundName} - ${equip1} vs ${equip2}`;
+            titol = `${roundName}: ${equip1} vs ${equip2}`;
         }
         
         const novaAposta = new Partit({
@@ -951,6 +951,15 @@ async function crearApostaPerPartit(partit, nomCompeticio, creadorUsername) {
         
         await novaAposta.save();
         console.log(`    ✅ Aposta creada: ${titol} (ID: ${novaAposta._id})`);
+        
+        // Afegir l'aposta a la llista d'apostes creades de l'organitzador
+        if (creadorUserId) {
+            await User.findByIdAndUpdate(creadorUserId, {
+                $push: { apostesCreades: novaAposta._id },
+            });
+            console.log(`    ✅ Aposta afegida a apostesCreades de l'organitzador`);
+        }
+        
         return novaAposta._id;
     } catch (err) {
         console.error(`    ❌ Error creant aposta per partit:`, err.message);
@@ -1098,7 +1107,7 @@ app.post("/competicions", authMiddleware, async (req, res) => {
         console.log("  🎲 Creant apostes per a cada partit...");
         for (let i = 0; i < novaCompeticio.partits.length; i++) {
             const partit = novaCompeticio.partits[i];
-            const apostaId = await crearApostaPerPartit(partit, nomCompeticio, req.user.username);
+            const apostaId = await crearApostaPerPartit(partit, nomCompeticio, req.user.username, req.user.id);
             if (apostaId) {
                 novaCompeticio.partits[i].apostaId = apostaId;
             }
@@ -1227,7 +1236,7 @@ app.put("/competicions/:id", authMiddleware, async (req, res) => {
             } 
             // Si no té aposta, crear-ne una de nova
             else if (!partit.apostaId) {
-                const apostaId = await crearApostaPerPartit(partit, nomCompeticio, req.user.username);
+                const apostaId = await crearApostaPerPartit(partit, nomCompeticio, req.user.username, req.user.id);
                 if (apostaId) {
                     partit.apostaId = apostaId;
                 }
