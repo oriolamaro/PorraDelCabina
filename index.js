@@ -1214,17 +1214,31 @@ app.put("/competicions/:id", authMiddleware, async (req, res) => {
         
         // Carregar competició actual per obtenir apostes existents
         const competicioActual = await Competició.findById(req.params.id);
-        const apostesExistents = new Map();
+        const apostesExistents = new Map(); // Mapa per _id -> apostaId
+        const apostesPerContingut = new Map(); // Mapa per contingut -> apostaId
         
         if (competicioActual && competicioActual.partits) {
             competicioActual.partits.forEach(p => {
                 if (p._id && p.apostaId) {
+                    // Indexar per _id
                     apostesExistents.set(p._id.toString(), p.apostaId);
+                    
+                    // Indexar per contingut (equips + estat finalització)
+                    const equip1 = (p.equip1 || p.team1 || "").toLowerCase().trim();
+                    const equip2 = (p.equip2 || p.team2 || "").toLowerCase().trim();
+                    const estaFinalitzat = p.estatPartit === "finalitzat" || 
+                                          (p.resultatEquip1 !== null && p.resultatEquip1 !== undefined &&
+                                           p.resultatEquip2 !== null && p.resultatEquip2 !== undefined);
+                    
+                    const clauContingut = `${equip1}|${equip2}|${estaFinalitzat}`;
+                    apostesPerContingut.set(clauContingut, p.apostaId);
                 }
             });
-            console.log("    - Apostes existents trobades:", apostesExistents.size);
+            console.log("    - Apostes per _id:", apostesExistents.size);
+            console.log("    - Apostes per contingut:", apostesPerContingut.size);
         }
         
+
         // Processar cada partit: preservar apostaId o crear nova aposta
         for (let i = 0; i < partits.length; i++) {
             const partit = partits[i];
@@ -1237,14 +1251,32 @@ app.put("/competicions/:id", authMiddleware, async (req, res) => {
             // PRIORITAT 2: Si el partit té _id i existeix a la base de dades amb aposta, recuperar-la
             else if (partit._id && apostesExistents.has(partit._id.toString())) {
                 partit.apostaId = apostesExistents.get(partit._id.toString());
-                console.log(`    ✓ Aposta recuperada de BD: ${partit.equip1 || partit.team1} vs ${partit.equip2 || partit.team2} (ID: ${partit.apostaId})`);
+                console.log(`    ✓ Aposta recuperada per _id: ${partit.equip1 || partit.team1} vs ${partit.equip2 || partit.team2} (ID: ${partit.apostaId})`);
             } 
-            // PRIORITAT 3: Si no té cap aposta, crear-ne una de nova
+            // PRIORITAT 3: Buscar aposta existent pel contingut (equips + estat)
             else {
-                const apostaId = await crearApostaPerPartit(partit, nomCompeticio, req.user.username, req.user.id);
-                if (apostaId) {
-                    partit.apostaId = apostaId;
-                    console.log(`    ✅ Nova aposta creada: ${partit.equip1 || partit.team1} vs ${partit.equip2 || partit.team2} (ID: ${apostaId})`);
+                const equip1 = (partit.equip1 || partit.team1 || "").toLowerCase().trim();
+                const equip2 = (partit.equip2 || partit.team2 || "").toLowerCase().trim();
+                const estaFinalitzat = partit.estatPartit === "finalitzat" || 
+                                      (partit.resultatEquip1 !== null && partit.resultatEquip1 !== undefined &&
+                                       partit.resultatEquip2 !== null && partit.resultatEquip2 !== undefined);
+                
+                const clauContingut = `${equip1}|${equip2}|${estaFinalitzat}`;
+                
+                if (apostesPerContingut.has(clauContingut)) {
+                    // Aposta existent trobada pel contingut!
+                    partit.apostaId = apostesPerContingut.get(clauContingut);
+                    console.log(`    ✓ Aposta reutilitzada per contingut: ${partit.equip1 || partit.team1} vs ${partit.equip2 || partit.team2} (ID: ${partit.apostaId})`);
+                } else {
+                    // PRIORITAT 4: Crear nova aposta només si no existeix cap coincidència
+                    const apostaId = await crearApostaPerPartit(partit, nomCompeticio, req.user.username, req.user.id);
+                    if (apostaId) {
+                        partit.apostaId = apostaId;
+                        console.log(`    ✅ Nova aposta creada: ${partit.equip1 || partit.team1} vs ${partit.equip2 || partit.team2} (ID: ${apostaId})`);
+                        
+                        // Afegir al mapa de contingut per evitar duplicats en aquesta mateixa operació
+                        apostesPerContingut.set(clauContingut, apostaId);
+                    }
                 }
             }
         }
