@@ -122,6 +122,7 @@ const partitIncrustatSchema = new mongoose.Schema({
     grup: { type: String },
     data: { type: Date, default: null },
     // apostable eliminat
+    apostaId: { type: mongoose.Schema.Types.ObjectId, ref: 'Partit', default: null },
     resultatEquip1: { type: Number, default: null },
     resultatEquip2: { type: Number, default: null },
     guanyadorPartit: { type: String, default: null },
@@ -919,6 +920,45 @@ app.get("/competicions", async (req, res) => {
     }
 });
 
+// ───────────────────────────────────────────────────────────
+// HELPER: CREAR APOSTA PER A UN PARTIT
+// ───────────────────────────────────────────────────────────
+async function crearApostaPerPartit(partit, nomCompeticio, creadorUsername) {
+    try {
+        const equip1 = partit.equip1 || partit.team1 || "Equip 1";
+        const equip2 = partit.equip2 || partit.team2 || "Equip 2";
+        
+        // Generate unique title
+        let titol = `${nomCompeticio} - ${equip1} vs ${equip2}`;
+        if (partit.grup) {
+            titol = `${nomCompeticio} - ${partit.grup} - ${equip1} vs ${equip2}`;
+        } else if (partit.round !== undefined) {
+            const roundNames = ["Final", "Semifinals", "Quarts", "Vuitens", "Setzens"];
+            const roundName = roundNames[partit.round] || `Round ${partit.round}`;
+            titol = `${nomCompeticio} - ${roundName} - ${equip1} vs ${equip2}`;
+        }
+        
+        const novaAposta = new Partit({
+            titol,
+            equipA: equip1,
+            equipB: equip2,
+            empatPermes: true,
+            opcions: [equip1, "Empat", equip2],
+            creador: creadorUsername,
+            participants: [],
+            apostat: 0,
+        });
+        
+        await novaAposta.save();
+        console.log(`    ✅ Aposta creada: ${titol} (ID: ${novaAposta._id})`);
+        return novaAposta._id;
+    } catch (err) {
+        console.error(`    ❌ Error creant aposta per partit:`, err.message);
+        return null;
+    }
+}
+
+
 app.post("/competicions", authMiddleware, async (req, res) => {
     try {
         console.log("🟢 ═══════════════════════════════════════════════════");
@@ -1054,6 +1094,21 @@ app.post("/competicions", authMiddleware, async (req, res) => {
         console.log("    - Partits guardats:", novaCompeticio.partits.length);
         console.log("    - Equips guardats:", novaCompeticio.equips?.length || 0);
         
+        // 🎲 CREAR APOSTES AUTOMÀTICAMENT PER A CADA PARTIT
+        console.log("  🎲 Creant apostes per a cada partit...");
+        for (let i = 0; i < novaCompeticio.partits.length; i++) {
+            const partit = novaCompeticio.partits[i];
+            const apostaId = await crearApostaPerPartit(partit, nomCompeticio, req.user.username);
+            if (apostaId) {
+                novaCompeticio.partits[i].apostaId = apostaId;
+            }
+        }
+        
+        // Guardar competició amb les referències a les apostes
+        await novaCompeticio.save();
+        console.log("  ✅ Apostes creades i referències actualitzades");
+
+        
         // Verify what was actually saved
         console.log("  🔍 Verificant dades guardades a MongoDB:");
         novaCompeticio.partits.forEach((p, idx) => {
@@ -1145,12 +1200,47 @@ app.put("/competicions/:id", authMiddleware, async (req, res) => {
             }
         }
 
+        // 🎲 GESTIONAR APOSTES: preservar existents i crear noves
+        console.log("  🎲 Gestionant apostes per als partits...");
+        
+        // Carregar competició actual per obtenir apostes existents
+        const competicioActual = await Competició.findById(req.params.id);
+        const apostesExistents = new Map();
+        
+        if (competicioActual && competicioActual.partits) {
+            competicioActual.partits.forEach(p => {
+                if (p._id && p.apostaId) {
+                    apostesExistents.set(p._id.toString(), p.apostaId);
+                }
+            });
+            console.log("    - Apostes existents trobades:", apostesExistents.size);
+        }
+        
+        // Processar cada partit: preservar apostaId o crear nova aposta
+        for (let i = 0; i < partits.length; i++) {
+            const partit = partits[i];
+            
+            // Si el partit té _id i ja té aposta, preservar-la
+            if (partit._id && apostesExistents.has(partit._id.toString())) {
+                partit.apostaId = apostesExistents.get(partit._id.toString());
+                console.log(`    ✓ Aposta preservada per partit existent: ${partit.equip1 || partit.team1} vs ${partit.equip2 || partit.team2}`);
+            } 
+            // Si no té aposta, crear-ne una de nova
+            else if (!partit.apostaId) {
+                const apostaId = await crearApostaPerPartit(partit, nomCompeticio, req.user.username);
+                if (apostaId) {
+                    partit.apostaId = apostaId;
+                }
+            }
+        }
+
         console.log("  💾 Actualitzant a MongoDB...");
         const competicioActualitzada = await Competició.findOneAndUpdate(
             { _id: req.params.id, organitzadorId: req.user.id },
             { nomCompeticio, tipus, partits },
             { new: true }
         );
+
 
         if (!competicioActualitzada) {
             console.log("❌ [UPDATE] Competició no trobada");
