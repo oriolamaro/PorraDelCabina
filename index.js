@@ -1420,6 +1420,33 @@ app.put("/competicions/:id", authMiddleware, async (req, res) => {
         );
         console.log("    - Partits amb resultats guardats:", partitsGuardatsAmbResultats.length);
         
+        // 🧹 ORPHAN BET CLEANUP (Neteja d'apostes que ja no es fan servir)
+        if (competicioActual && competicioActualitzada) {
+             const idsAbans = new Set(competicioActual.partits
+                .map(p => p.apostaId ? p.apostaId.toString() : null)
+                .filter(id => id));
+
+             const idsAra = new Set(competicioActualitzada.partits
+                .map(p => p.apostaId ? p.apostaId.toString() : null)
+                .filter(id => id));
+
+             const apostesEliminar = [...idsAbans].filter(id => !idsAra.has(id));
+
+             if (apostesEliminar.length > 0) {
+                 console.log(`  🧹 Eliminant ${apostesEliminar.length} apostes orfes (ja no existeixen a la competició):`, apostesEliminar);
+                 try {
+                     await Partit.deleteMany({ _id: { $in: apostesEliminar } });
+                     await User.updateMany(
+                         { apostesCreades: { $in: apostesEliminar } },
+                         { $pull: { apostesCreades: { $in: apostesEliminar } } }
+                     );
+                     console.log("     ✅ Apostes orfes eliminades correctament.");
+                 } catch (cleanupErr) {
+                     console.error("     ⚠️ Error durant la neteja d'apostes orfes:", cleanupErr);
+                 }
+             }
+        }
+        
         console.log("🔵 ═══════════════════════════════════════════════════");
         console.log("✅ [UPDATE COMPETICIÓ] Actualització completada!");
         console.log("🔵 ═══════════════════════════════════════════════════");
