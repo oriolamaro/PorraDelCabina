@@ -920,6 +920,14 @@ app.get("/competicions", async (req, res) => {
     }
 });
 
+// Helper per normalitzar strings (treure accents, espais, minúscules)
+function normalitzarString(str) {
+    if (!str) return "";
+    return str.toString().toLowerCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Treure accents
+        .trim();
+}
+
 // ───────────────────────────────────────────────────────────
 // HELPER: CREAR APOSTA PER A UN PARTIT
 // ───────────────────────────────────────────────────────────
@@ -929,15 +937,30 @@ async function crearApostaPerPartit(partit, nomCompeticio, creadorUsername, crea
         const equip2 = partit.equip2 || partit.team2 || "Equip 2";
         
         // Generate unique title
-        let titol = `${equip1} vs ${equip2}`;
+        let titol = `${nomCompeticio} - ${equip1} vs ${equip2}`;
         if (partit.grup) {
-            titol = `${partit.grup} - ${equip1} vs ${equip2}`;
+            titol = `${nomCompeticio} - ${partit.grup} - ${equip1} vs ${equip2}`;
         } else if (partit.round !== undefined) {
             const roundNames = ["Final", "Semifinal", "Quarts", "Vuitens", "Setzens"];
             const roundName = roundNames[partit.round] || `Round ${partit.round}`;
             titol = `${roundName}: ${equip1} vs ${equip2}`;
         }
         
+        // 🔒 SAFETY NET: Check if bet with same title already exists (Idempotency)
+        // Això evita duplicats si tota la resta de lògica falla
+        const apostaExistent = await Partit.findOne({ 
+            titol: titol, 
+            creador: creadorUsername,
+            // Opcional: comprovar equips també per seguretat extra
+            // equipA: equip1,
+            // equipB: equip2
+        });
+
+        if (apostaExistent) {
+            console.log(`    ⚠️ Aposta recuperada per títol (Idempotència): ${titol} (ID: ${apostaExistent._id})`);
+            return apostaExistent._id;
+        }
+
         const novaAposta = new Partit({
             titol,
             equipA: equip1,
@@ -1224,8 +1247,8 @@ app.put("/competicions/:id", authMiddleware, async (req, res) => {
                     apostesExistents.set(p._id.toString(), p.apostaId);
                     
                     // Indexar per contingut (equips) - Usem array per gestionar duplicats (anada/tornada)
-                    const equip1 = (p.equip1 || p.team1 || "").toLowerCase().trim();
-                    const equip2 = (p.equip2 || p.team2 || "").toLowerCase().trim();
+                    const equip1 = normalitzarString(p.equip1 || p.team1);
+                    const equip2 = normalitzarString(p.equip2 || p.team2);
                     
                     const clauContingut = `${equip1}|${equip2}`;
                     
@@ -1261,8 +1284,8 @@ app.put("/competicions/:id", authMiddleware, async (req, res) => {
             } 
             // PRIORITAT 3: Buscar aposta existent pel contingut (equips) - Queue consumption
             else {
-                const equip1 = (partit.equip1 || partit.team1 || "").toLowerCase().trim();
-                const equip2 = (partit.equip2 || partit.team2 || "").toLowerCase().trim();
+                const equip1 = normalitzarString(partit.equip1 || partit.team1);
+                const equip2 = normalitzarString(partit.equip2 || partit.team2);
                 
                 const clauContingut = `${equip1}|${equip2}`;
                 
