@@ -121,7 +121,7 @@ const partitIncrustatSchema = new mongoose.Schema({
     position: { type: Number },
     grup: { type: String },
     data: { type: Date, default: null },
-    apostable: { type: Boolean, default: false },
+    // apostable eliminat
     resultatEquip1: { type: Number, default: null },
     resultatEquip2: { type: Number, default: null },
     guanyadorPartit: { type: String, default: null },
