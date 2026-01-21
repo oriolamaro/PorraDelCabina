@@ -989,6 +989,12 @@ async function crearApostaPerPartit(partit, nomCompeticio, creadorUsername, crea
              return null;
         }
 
+        // 🛑 VALIDACIÓ: Si el partit ja està finalitzat, no creem aposta.
+        if (partit.estatPartit === "finalitzat" || (partit.resultatEquip1 !== undefined && partit.resultatEquip1 !== null)) {
+             console.log(`    ⚠️ Aposta no creada: Partit ja finalitzat (${rawEquip1} vs ${rawEquip2})`);
+             return null;
+        }
+
         const equip1 = rawEquip1;
         const equip2 = rawEquip2;
         const color1 = partit.colorEquip1 || partit.colorTeam1 || "#1a1a1a";
