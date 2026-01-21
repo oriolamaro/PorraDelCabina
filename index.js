@@ -108,10 +108,20 @@ const partitSchema = new mongoose.Schema({
     empatPermes: { type: Boolean, default: true },
     opcions: [{ type: String, required: true }],
     creador: { type: String, required: true },
-
+    
     participants: { type: [participantSchema], default: [] },
     apostat: { type: Number, default: 0 },
     creatA: { type: Date, default: Date.now },
+
+    // Camps de resultat sincronitzats
+    resultatEquip1: { type: Number, default: null },
+    resultatEquip2: { type: Number, default: null },
+    guanyadorPartit: { type: String, default: null },
+    estatPartit: {
+        type: String,
+        enum: ["pendent", "en_joc", "finalitzat", "cancel·lat"],
+        default: "pendent",
+    },
 });
 const Partit = mongoose.model("Partit", partitSchema);
 
@@ -610,8 +620,14 @@ app.get("/gestiona", authMiddleware, async (req, res) => {
                 tipus: "partit",
                 equipA: m.equipA,
                 equipB: m.equipB,
+                colorA: m.colorA,
+                colorB: m.colorB,
                 opcions: m.opcions,
                 participants: m.participants,
+                resultatEquip1: m.resultatEquip1,
+                resultatEquip2: m.resultatEquip2,
+                guanyadorPartit: m.guanyadorPartit,
+                estatPartit: m.estatPartit,
                 totalDiners: m.participants.reduce(
                     (sum, x) => sum + (x.diners || 0),
                     0
@@ -682,10 +698,13 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
         console.log("    - organitzadorId:", organitzadorId);
         console.log("    - partitId:", partitId);
         
-        // Busquem la competició que pertany a l'usuari I que conté el partit
+        // Busquem la competició que pertany a l'usuari I que conté el partit (per ID o apostaId)
         const competicio = await Competició.findOne({
             organitzadorId: organitzadorId,
-            "partits._id": partitId,
+            $or: [
+                { "partits._id": partitId },
+                { "partits.apostaId": partitId }
+            ]
         });
 
         if (!competicio) {
@@ -702,8 +721,12 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
         console.log("    - Tipus:", competicio.tipus);
         console.log("    - Total partits:", competicio.partits.length);
 
-        // Extreiem el subdocument del partit
-        const partit = competicio.partits.id(partitId);
+        // Extreiem el subdocument del partit (Smart Search)
+        let partit = competicio.partits.id(partitId);
+        if (!partit) {
+            console.log("  ℹ️ Cerca per ID directe fallida. Provant per apostaId...");
+            partit = competicio.partits.find(p => p.apostaId && p.apostaId.toString() === partitId);
+        }
         if (!partit) {
             console.log("❌ [RESULTAT] Partit no trobat dins la competició");
             return res
@@ -788,6 +811,17 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
         partit.resultatEquip2 = equip2Resultat;
         partit.guanyadorPartit = guanyadorPartit; // Guardem el guanyador (equip o null)
         partit.estatPartit = "finalitzat";
+
+        // ✅ SYNC APOSTA: Si hi ha aposta associada, també l'actualitzem
+        if (partit.apostaId) {
+             console.log("  🔄 Sincronitzant resultat a l'aposta original:", partit.apostaId);
+             await Partit.findByIdAndUpdate(partit.apostaId, {
+                 resultatEquip1: equip1Resultat,
+                 resultatEquip2: equip2Resultat,
+                 guanyadorPartit: guanyadorPartit,
+                 estatPartit: "finalitzat"
+             });
+        }
         console.log("  ✅ Dades actualitzades localment");
 
         // 7. Lògica de Torneig (Avançar Ronda)
