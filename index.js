@@ -933,8 +933,17 @@ function normalitzarString(str) {
 // ───────────────────────────────────────────────────────────
 async function crearApostaPerPartit(partit, nomCompeticio, creadorUsername, creadorUserId) {
     try {
-        const equip1 = partit.equip1 || partit.team1 || "Equip 1";
-        const equip2 = partit.equip2 || partit.team2 || "Equip 2";
+        const rawEquip1 = partit.equip1 || partit.team1;
+        const rawEquip2 = partit.equip2 || partit.team2;
+        
+        // 🛑 VALIDACIÓ: Si falta algun dels dos equips, NO creem l'aposta encara.
+        if (!rawEquip1 || !rawEquip2 || rawEquip1.toString().trim() === "" || rawEquip2.toString().trim() === "") {
+             console.log(`    ⚠️ Aposta no creada: Equips incomplets (${rawEquip1} vs ${rawEquip2})`);
+             return null;
+        }
+
+        const equip1 = rawEquip1;
+        const equip2 = rawEquip2;
         
         // Generate unique title
         let titol = `${nomCompeticio} - ${equip1} vs ${equip2}`;
