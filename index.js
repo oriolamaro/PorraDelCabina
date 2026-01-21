@@ -103,9 +103,12 @@ const partitSchema = new mongoose.Schema({
     titol: { type: String, required: true },
     equipA: { type: String, required: true },
     equipB: { type: String, required: true },
+    colorA: { type: String, default: "#1a1a1a" },
+    colorB: { type: String, default: "#1a1a1a" },
     empatPermes: { type: Boolean, default: true },
     opcions: [{ type: String, required: true }],
     creador: { type: String, required: true },
+
     participants: { type: [participantSchema], default: [] },
     apostat: { type: Number, default: 0 },
     creatA: { type: Date, default: Date.now },
@@ -944,6 +947,8 @@ async function crearApostaPerPartit(partit, nomCompeticio, creadorUsername, crea
 
         const equip1 = rawEquip1;
         const equip2 = rawEquip2;
+        const color1 = partit.colorEquip1 || partit.colorTeam1 || "#1a1a1a";
+        const color2 = partit.colorEquip2 || partit.colorTeam2 || "#1a1a1a";
         
         // Generate unique title
         let titol = `${nomCompeticio} - ${equip1} vs ${equip2}`;
@@ -974,6 +979,8 @@ async function crearApostaPerPartit(partit, nomCompeticio, creadorUsername, crea
             titol,
             equipA: equip1,
             equipB: equip2,
+            colorA: color1,
+            colorB: color2,
             empatPermes: true,
             opcions: [equip1, "Empat", equip2],
             creador: creadorUsername,
@@ -1036,6 +1043,8 @@ async function syncPartitAposta(partit, nomCompeticio) {
                 aposta.titol = titol;
                 aposta.equipA = equip1;
                 aposta.equipB = equip2;
+                if (partit.colorEquip1) aposta.colorA = partit.colorEquip1;
+                if (partit.colorEquip2) aposta.colorB = partit.colorEquip2;
                 
                 // Actualitzar opcions mantenint "Empat"
                 // NOTA: Això podria desincronitzar apostes d'usuaris si havien apostat pel nom antic.
