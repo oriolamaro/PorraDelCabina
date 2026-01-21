@@ -122,6 +122,7 @@ const partitSchema = new mongoose.Schema({
         enum: ["pendent", "en_joc", "finalitzat", "cancel·lat"],
         default: "pendent",
     },
+    recompensesRepartides: { type: Boolean, default: false },
 });
 const Partit = mongoose.model("Partit", partitSchema);
 
@@ -812,15 +813,24 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
         partit.guanyadorPartit = guanyadorPartit; // Guardem el guanyador (equip o null)
         partit.estatPartit = "finalitzat";
 
-        // ✅ SYNC APOSTA: Si hi ha aposta associada, també l'actualitzem
-        if (partit.apostaId) {
-             console.log("  🔄 Sincronitzant resultat a l'aposta original:", partit.apostaId);
-             await Partit.findByIdAndUpdate(partit.apostaId, {
+        // ✅ SYNC APOSTA: Si hi ha aposta associada (o inferida), també l'actualitzem
+        let targetApostaId = partit.apostaId;
+        if (!targetApostaId && partitId !== partit._id.toString()) {
+             targetApostaId = partitId;
+             console.log("  ℹ️ Inferit apostaId des de URL:", targetApostaId);
+        }
+
+        if (targetApostaId) {
+             console.log("  🔄 Sincronitzant resultat a l'aposta original:", targetApostaId);
+             await Partit.findByIdAndUpdate(targetApostaId, {
                  resultatEquip1: equip1Resultat,
                  resultatEquip2: equip2Resultat,
                  guanyadorPartit: guanyadorPartit,
                  estatPartit: "finalitzat"
              });
+
+             // 💰 REPARTIR RECOMPENSES
+             await distribuirRecompenses(targetApostaId, guanyadorPartit);
         }
         console.log("  ✅ Dades actualitzades localment");
 
@@ -1520,3 +1530,66 @@ app.put("/competicions/:id", authMiddleware, async (req, res) => {
 // INICI SERVIDOR
 // ───────────────────────────────────────────────────────────
 app.listen(3000, () => console.log("🌐 Servidor escoltant al port 3000"));
+
+// ───────────────────────────────────────────────────────────
+// HELPERS
+// ───────────────────────────────────────────────────────────
+async function distribuirRecompenses(apostaId, guanyador) {
+    console.log(`💰 [RECOMPENSES] Iniciant repartiment per apta ${apostaId} (Guanyador: ${guanyador})`);
+    
+    try {
+        const aposta = await Partit.findById(apostaId);
+        if (!aposta) {
+            console.log("⚠️ [RECOMPENSES] Aposta no trobada");
+            return;
+        }
+        
+        if (aposta.recompensesRepartides) {
+            console.log("⚠️ [RECOMPENSES] Ja repartides anteriorment!");
+            return;
+        }
+        
+        // 1. Filtrar guanyadors (Participants que han endevinat)
+        const guanyadors = aposta.participants.filter(p => p.seleccio === guanyador);
+        
+        if (guanyadors.length === 0) {
+            console.log("😢 [RECOMPENSES] Cap encertant. El pot es manté (o es perd).");
+            // Marcar com repartit per evitar processar-ho de nou infinitament
+            aposta.recompensesRepartides = true;
+            await aposta.save();
+            return;
+        }
+
+        // 2. Calcular Bote (Suma de tots els diners apostats en aquest partit)
+        const boteTotal = aposta.participants.reduce((sum, p) => sum + (p.diners || 0), 0);
+        
+        // Calcular total apostat només pels guanyadors (per fer repartiment proporcional)
+        const totalApostatGuanyadors = guanyadors.reduce((sum, p) => sum + (p.diners || 0), 0);
+
+        if (totalApostatGuanyadors === 0) {
+            console.log("⚠️ [RECOMPENSES] Error matemàtic: Guanyadors existeixen però han apostat 0?");
+            return;
+        }
+
+        const ratio = boteTotal / totalApostatGuanyadors;
+        console.log(`📊 [RECOMPENSES] Bote: ${boteTotal}. Apostat Guanyadors: ${totalApostatGuanyadors}. Ratio: ${ratio.toFixed(4)}`);
+
+        // 3. Repartir Premis
+        for (const p of guanyadors) {
+            const premi = p.diners * ratio;
+            console.log(`  - Usuari ${p.username}: Apostat ${p.diners} -> Premi ${premi.toFixed(2)}`);
+            
+            await User.findByIdAndUpdate(p.userId, {
+                $inc: { walletBalance: premi }
+            });
+        }
+
+        // 4. Marcar com repartit
+        aposta.recompensesRepartides = true;
+        await aposta.save();
+        console.log("✅ [RECOMPENSES] Repartiment completat amb èxit!");
+
+    } catch (err) {
+        console.error("❌ [RECOMPENSES] Error crític durant el repartiment:", err);
+    }
+}
