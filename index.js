@@ -1059,22 +1059,18 @@ async function syncPartitAposta(partit, nomCompeticio) {
         const aposta = await Partit.findById(partit.apostaId);
         if (!aposta) return;
 
+        let changed = false;
+
         const equip1 = partit.equip1 || partit.team1 || "Equip 1";
         const equip2 = partit.equip2 || partit.team2 || "Equip 2";
 
-        // Si els equips de la competició són placeholders ("Equip X"), 
-        // i l'aposta ja té noms reals, NO sobreescrivim.
-        // Però si la competició té noms reals i l'aposta té "Equip X" o noms vells, actualitzem.
+        // 1. SINCRONITZACIÓ DE NOMS (Si no són placeholders i han canviat)
         const isPlaceholder = (name) => name.toLowerCase().includes("equip") || name.toLowerCase().includes("team");
         
-        // Si la competició té noms vàlids (no placeholders), intentem sincronitzar
         if (!isPlaceholder(equip1) && !isPlaceholder(equip2)) {
-            
-            // Si l'aposta té noms diferents, actualitzem
             if (aposta.equipA !== equip1 || aposta.equipB !== equip2) {
-                console.log(`    🔄 Sincronitzant aposta: ${aposta.equipA} vs ${aposta.equipB} -> ${equip1} vs ${equip2}`);
+                console.log(`    🔄 Sincronitzant aposta (Noms): ${aposta.equipA} vs ${aposta.equipB} -> ${equip1} vs ${equip2}`);
                 
-                // Regenerar títol
                 let titol = `${nomCompeticio} - ${equip1} vs ${equip2}`;
                 if (partit.grup) {
                     titol = `${nomCompeticio} - ${partit.grup} - ${equip1} vs ${equip2}`;
@@ -1089,16 +1085,40 @@ async function syncPartitAposta(partit, nomCompeticio) {
                 aposta.equipB = equip2;
                 if (partit.colorEquip1) aposta.colorA = partit.colorEquip1;
                 if (partit.colorEquip2) aposta.colorB = partit.colorEquip2;
-                
-                // Actualitzar opcions mantenint "Empat"
-                // NOTA: Això podria desincronitzar apostes d'usuaris si havien apostat pel nom antic.
-                // Assumim que si els noms canvien, ningú hauria d'haver apostat seriosament encara.
                 aposta.opcions = [equip1, "Empat", equip2];
                 
-                await aposta.save();
-                console.log(`       ✅ Aposta actualitzada correctament`);
+                changed = true;
             }
         }
+
+        // 2. SINCRONITZACIÓ DE RESULTATS I ESTAT
+        if (partit.estatPartit && aposta.estatPartit !== partit.estatPartit) {
+            console.log(`    🔄 Sincronitzant aposta (Estat): ${aposta.estatPartit} -> ${partit.estatPartit}`);
+            aposta.estatPartit = partit.estatPartit;
+            changed = true;
+        }
+
+        if (partit.resultatEquip1 !== undefined && partit.resultatEquip1 !== null && 
+           (aposta.resultatEquip1 !== partit.resultatEquip1 || aposta.resultatEquip2 !== partit.resultatEquip2)) {
+            
+            console.log(`    🔄 Sincronitzant aposta (Resultat): ${partit.resultatEquip1}-${partit.resultatEquip2}`);
+            aposta.resultatEquip1 = partit.resultatEquip1;
+            aposta.resultatEquip2 = partit.resultatEquip2;
+            aposta.guanyadorPartit = partit.guanyadorPartit;
+            changed = true;
+        }
+
+        if (changed) {
+            await aposta.save();
+            console.log(`       ✅ Aposta actualitzada.`);
+        }
+
+        // 3. REPARTIR RECOMPENSES (Si s'ha finalitzat en aquesta sync)
+        if (aposta.estatPartit === "finalitzat" && !aposta.recompensesRepartides) {
+            console.log("    💰 Detectat partit finalitzat durant sync. Repartint recompenses...");
+            await distribuirRecompenses(aposta._id, aposta.guanyadorPartit);
+        }
+
     } catch (err) {
         console.error(`    ⚠️ Error sincronitzant aposta:`, err.message);
     }
