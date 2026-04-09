@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+websockets
+deepgram-sdk
+python-dotenv
+openai
+supabase
+python-multipart
