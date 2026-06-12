@@ -81,6 +81,14 @@ const porraSchema = new mongoose.Schema({
     apostat: { type: Number, default: 0 },
     participants: [participantSchema],
     creatA: { type: Date, default: Date.now },
+    // Resolució
+    guanyador: { type: String, default: null },
+    estatPartit: {
+        type: String,
+        enum: ["pendent", "finalitzat", "cancel·lat"],
+        default: "pendent",
+    },
+    recompensesRepartides: { type: Boolean, default: false },
 });
 const Porra = mongoose.model("Porra", porraSchema);
 
@@ -96,6 +104,15 @@ const quinielaSchema = new mongoose.Schema({
     apostat: { type: Number, default: 0 },
     participants: [participantSchema],
     creatA: { type: Date, default: Date.now },
+    // Resolució
+    resultats: { type: [Number], default: null }, // 0=equipA, 1=Empat, 2=equipB per partit
+    guanyador: { type: String, default: null }, // resum de resultats encertats
+    estatPartit: {
+        type: String,
+        enum: ["pendent", "finalitzat", "cancel·lat"],
+        default: "pendent",
+    },
+    recompensesRepartides: { type: Boolean, default: false },
 });
 const Quiniela = mongoose.model("Quiniela", quinielaSchema);
 
@@ -480,6 +497,17 @@ app.post("/aposta", authMiddleware, async (req, res) => {
         if (!aposta)
             return res.status(404).json({ error: "Aposta no trobada." });
 
+        // 🚫 No es pot apostar a un partit ja tancat (finalitzat o cancel·lat)
+        if (
+            tipus === "partit" &&
+            (aposta.estatPartit === "finalitzat" ||
+                aposta.estatPartit === "cancel·lat")
+        ) {
+            return res
+                .status(400)
+                .json({ error: "Aquesta aposta ja està tancada." });
+        }
+
         // ✅ Normalitzar selecció
         let seleccioText = null;
         if (tipus === "porra") {
@@ -504,8 +532,13 @@ app.post("/aposta", authMiddleware, async (req, res) => {
                 seleccioText = equipB;
             }
         } else if (tipus === "quiniela") {
-            // Quiniela → sempre guardem JSON.stringify
-            seleccioText = JSON.stringify(seleccio);
+            // Quiniela → el frontend ja envia una cadena llegible amb les tries
+            // ("Barça, Empat, Sevilla, …"). Guardem aquesta cadena tal qual;
+            // si arribés un objecte, el serialitzem.
+            seleccioText =
+                typeof seleccio === "string"
+                    ? seleccio
+                    : JSON.stringify(seleccio);
         }
 
         if (!seleccioText) {
@@ -541,6 +574,8 @@ app.post("/aposta", authMiddleware, async (req, res) => {
             seleccio: seleccioText,
             diners: quantitat, // 🔑 ara sempre hi ha diners
         });
+        // 💰 Mantenir el pot total (apostat) sincronitzat amb els participants
+        aposta.apostat = (aposta.apostat || 0) + quantitat;
         await aposta.save();
 
         res.status(201).json({
@@ -709,12 +744,33 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
         });
 
         if (!competicio) {
-            console.log("❌ [RESULTAT] Competició no trobada");
+            // 🎯 No forma part de cap competició → és una aposta de partit
+            // independent (creada manualment). La resolem directament.
+            console.log("  ℹ️ No és de cap competició. Provant aposta de partit independent...");
+            const partitDoc = await Partit.findById(partitId);
+            if (!partitDoc) {
+                console.log("❌ [RESULTAT] Partit no trobat");
+                return res
+                    .status(404)
+                    .json({ error: "Partit no trobat o no tens permisos." });
+            }
+            if (partitDoc.estatPartit === "finalitzat") {
+                return res
+                    .status(400)
+                    .json({ error: "Aquesta aposta ja està tancada." });
+            }
+            const empat = equip1Resultat === equip2Resultat;
+            const guanyadorFinal = guanyadorPartit || (empat ? "Empat" : null);
+            partitDoc.resultatEquip1 = equip1Resultat;
+            partitDoc.resultatEquip2 = equip2Resultat;
+            partitDoc.guanyadorPartit = guanyadorFinal;
+            partitDoc.estatPartit = "finalitzat";
+            await partitDoc.save();
+            await distribuirRecompenses(partitDoc._id, guanyadorFinal);
+            console.log("  ✅ Aposta de partit independent resolta.");
             return res
-                .status(404)
-                .json({
-                    error: "Partit no trobat o no tens permisos sobre aquesta competició.",
-                });
+                .status(200)
+                .json({ message: "Resultat guardat correctament." });
         }
 
         console.log("  ✅ Competició trobada:", competicio._id);
@@ -743,27 +799,10 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
         console.log("    - Estat:", partit.estatPartit);
         console.log("    - Data:", partit.data);
 
-        // 4. Validació de Data (El partit ha d'haver començat)
-        console.log("  🔍 Validant data...");
-        if (!partit.data) {
-            console.log("❌ [RESULTAT] Partit sense data assignada");
-            return res
-                .status(400)
-                .json({
-                    error: "El partit no té data assignada. Assigna una data abans de posar el resultat.",
-                });
-        }
-        if (new Date(partit.data) > new Date()) {
-            console.log("❌ [RESULTAT] El partit encara no ha començat");
-            console.log("    - Data partit:", partit.data);
-            console.log("    - Data actual:", new Date());
-            return res
-                .status(400)
-                .json({
-                    error: "No es pot posar un resultat a un partit que encara no ha començat.",
-                });
-        }
-        console.log("  ✅ Data vàlida");
+        // 4. Validació de Data — RELAXADA.
+        // El frontend de la referència permet a l'organitzador posar el resultat
+        // en qualsevol moment, així que no bloquegem per data/hora del partit.
+        console.log("  ✅ Validació de data omesa (l'organitzador controla el resultat)");
 
         // 5. Validació de Lògica de Competició (Empats i Penals)
         const isEmpat = equip1Resultat === equip2Resultat;
@@ -938,11 +977,18 @@ app.get("/me", authMiddleware, async (req, res) => {
             return res.status(404).json({ error: "Usuari no trobat." });
         }
 
+        // Enriquim cada aposta amb estat (oberta/guanyada/perduda) i pagament,
+        // i calculem les estadístiques del perfil.
+        const apostes = await enrichApostes(user.apostes || []);
+        const stats = await computeStats(user, apostes);
+
         res.json({
             id: user._id,
             username: user.username,
+            role: user.role,
             walletBalance: user.walletBalance,
-            apostes: user.apostes || [],
+            apostes,
+            stats,
         });
     } catch (err) {
         console.error("❌ Error /me:", err);
@@ -1553,6 +1599,107 @@ app.put("/competicions/:id", authMiddleware, async (req, res) => {
 });
 
 // ───────────────────────────────────────────────────────────
+// TANCAR / RESOLDRE APOSTES (porra · quiniela)
+// ───────────────────────────────────────────────────────────
+app.post("/porres/:id/resultat", authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== "organitzador")
+            return res.status(403).json({ error: "Accés denegat." });
+
+        const { guanyador } = req.body;
+        const porra = await Porra.findById(req.params.id);
+        if (!porra) return res.status(404).json({ error: "Porra no trobada." });
+        if (porra.estatPartit === "finalitzat")
+            return res.status(400).json({ error: "Aquesta porra ja està tancada." });
+        if (!guanyador || !(porra.opcions || []).includes(guanyador))
+            return res.status(400).json({ error: "Opció guanyadora no vàlida." });
+
+        porra.guanyador = guanyador;
+        porra.estatPartit = "finalitzat";
+        await repartirPot(porra, (p) => (p.seleccio || "").trim() === guanyador.trim());
+
+        res.json({ message: "Porra tancada i recompenses repartides." });
+    } catch (err) {
+        console.error("❌ Error /porres/:id/resultat:", err);
+        res.status(500).json({ error: "Error intern del servidor." });
+    }
+});
+
+app.post("/quinieles/:id/resultat", authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== "organitzador")
+            return res.status(403).json({ error: "Accés denegat." });
+
+        const { resultats } = req.body; // array 0/1/2 per partit
+        const q = await Quiniela.findById(req.params.id);
+        if (!q) return res.status(404).json({ error: "Quiniela no trobada." });
+        if (q.estatPartit === "finalitzat")
+            return res.status(400).json({ error: "Aquesta quiniela ja està tancada." });
+        if (!Array.isArray(resultats) || resultats.length !== q.partits.length)
+            return res.status(400).json({ error: "Resultats no vàlids." });
+
+        // Cadena guanyadora, construïda igual que les tries del frontend.
+        const winStr = q.partits
+            .map((p, i) => (resultats[i] === 0 ? p.equipA : resultats[i] === 1 ? "Empat" : p.equipB))
+            .join(", ");
+
+        q.resultats = resultats;
+        q.guanyador = winStr;
+        q.estatPartit = "finalitzat";
+        await repartirPot(q, (p) => normSel(p.seleccio).trim() === winStr.trim());
+
+        res.json({ message: "Quiniela tancada i recompenses repartides." });
+    } catch (err) {
+        console.error("❌ Error /quinieles/:id/resultat:", err);
+        res.status(500).json({ error: "Error intern del servidor." });
+    }
+});
+
+// ───────────────────────────────────────────────────────────
+// COMPTE: CANVI DE ROL · RECÀRREGA DEL MONEDER
+// ───────────────────────────────────────────────────────────
+app.post("/me/role", authMiddleware, async (req, res) => {
+    try {
+        const { role } = req.body;
+        if (!["jugador", "organitzador"].includes(role))
+            return res.status(400).json({ error: "Rol no vàlid." });
+
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ error: "Usuari no trobat." });
+
+        user.role = role;
+        await user.save();
+
+        // Reemetem un token amb el nou rol (l'authMiddleware el llegeix del token).
+        const token = jwt.sign(
+            { id: user._id.toString(), username: user.username, role },
+            JWT_SECRET,
+            { expiresIn: "1h" }
+        );
+        res.json({ token, role, walletBalance: user.walletBalance });
+    } catch (err) {
+        console.error("❌ Error /me/role:", err);
+        res.status(500).json({ error: "Error intern del servidor." });
+    }
+});
+
+app.post("/me/recarregar", authMiddleware, async (req, res) => {
+    try {
+        const amount = Math.min(Math.max(Number(req.body.amount) || 50, 1), 500);
+        const user = await User.findByIdAndUpdate(
+            req.user.id,
+            { $inc: { walletBalance: amount } },
+            { new: true }
+        );
+        if (!user) return res.status(404).json({ error: "Usuari no trobat." });
+        res.json({ walletBalance: user.walletBalance, message: `Recarregat +${amount}€` });
+    } catch (err) {
+        console.error("❌ Error /me/recarregar:", err);
+        res.status(500).json({ error: "Error intern del servidor." });
+    }
+});
+
+// ───────────────────────────────────────────────────────────
 // INICI SERVIDOR
 // ───────────────────────────────────────────────────────────
 app.listen(3000, () => console.log("🌐 Servidor escoltant al port 3000"));
@@ -1618,4 +1765,134 @@ async function distribuirRecompenses(apostaId, guanyador) {
     } catch (err) {
         console.error("❌ [RECOMPENSES] Error crític durant el repartiment:", err);
     }
+}
+
+// ───────────────────────────────────────────────────────────
+// HELPERS: RESOLUCIÓ GENÈRICA · ENRIQUIMENT D'APOSTES · ESTADÍSTIQUES
+// ───────────────────────────────────────────────────────────
+
+// Algunes tries de quiniela es van desar com a JSON ("\"Barça, Empat\"").
+function normSel(s) {
+    if (typeof s !== "string") return String(s ?? "");
+    if (s.length > 1 && s[0] === '"') {
+        try {
+            return JSON.parse(s);
+        } catch {
+            return s;
+        }
+    }
+    return s;
+}
+
+// Repartiment parimutuel genèric per a qualsevol aposta (porra/quiniela/partit):
+// cada guanyador rep diners × (bote / total_apostat_pels_guanyadors).
+async function repartirPot(betDoc, isWinner) {
+    if (betDoc.recompensesRepartides) {
+        await betDoc.save();
+        return;
+    }
+    const participants = betDoc.participants || [];
+    const guanyadors = participants.filter(isWinner);
+    const bote = participants.reduce((s, p) => s + (p.diners || 0), 0);
+    const totalGuanyadors = guanyadors.reduce((s, p) => s + (p.diners || 0), 0);
+
+    if (guanyadors.length > 0 && totalGuanyadors > 0) {
+        const ratio = bote / totalGuanyadors;
+        for (const p of guanyadors) {
+            await User.findByIdAndUpdate(p.userId, {
+                $inc: { walletBalance: p.diners * ratio },
+            });
+        }
+    }
+    betDoc.recompensesRepartides = true;
+    await betDoc.save();
+}
+
+// La selecció guanyadora d'una aposta resolta.
+function winningSelection(tipus, doc) {
+    if (tipus === "partit") return doc.guanyadorPartit || "Empat";
+    return doc.guanyador; // porra / quiniela
+}
+
+// Afegeix estat (oberta/guanyada/perduda) i pagament a cada aposta del jugador.
+async function enrichApostes(apostes) {
+    const ids = { porra: [], quiniela: [], partit: [] };
+    apostes.forEach((a) => {
+        if (a.apostaId && ids[a.tipus]) ids[a.tipus].push(a.apostaId);
+    });
+
+    const [porres, quinieles, partits] = await Promise.all([
+        Porra.find({ _id: { $in: ids.porra } }),
+        Quiniela.find({ _id: { $in: ids.quiniela } }),
+        Partit.find({ _id: { $in: ids.partit } }),
+    ]);
+    const toMap = (arr) => new Map(arr.map((d) => [d._id.toString(), d]));
+    const maps = {
+        porra: toMap(porres),
+        quiniela: toMap(quinieles),
+        partit: toMap(partits),
+    };
+
+    return apostes.map((a) => {
+        const base = {
+            apostaId: a.apostaId,
+            tipus: a.tipus,
+            titol: a.titol,
+            seleccio: normSel(a.seleccio),
+            diners: a.diners,
+            data: a.data,
+        };
+        const doc = maps[a.tipus] && maps[a.tipus].get(String(a.apostaId));
+        if (!doc || doc.estatPartit !== "finalitzat") {
+            return { ...base, status: "oberta" };
+        }
+        const winSel = winningSelection(a.tipus, doc);
+        const userSel = normSel(a.seleccio);
+        const isWin = winSel != null && userSel.trim() === String(winSel).trim();
+        if (!isWin) {
+            return { ...base, status: "perduda", payout: `−${Number(a.diners).toFixed(2)}` };
+        }
+        const participants = doc.participants || [];
+        const bote = participants.reduce((s, p) => s + (p.diners || 0), 0);
+        const totalWin = participants
+            .filter((p) => normSel(p.seleccio).trim() === String(winSel).trim())
+            .reduce((s, p) => s + (p.diners || 0), 0);
+        const payout = totalWin > 0 ? (a.diners * bote) / totalWin : a.diners;
+        return { ...base, status: "guanyada", payout: `+${payout.toFixed(2)}`, net: payout - a.diners };
+    });
+}
+
+// Estadístiques del perfil (diferents per a jugador i organitzador).
+async function computeStats(user, apostesEnriquides) {
+    if (user.role === "organitzador") {
+        const ids = user.apostesCreades || [];
+        const [porres, quinieles, partits] = await Promise.all([
+            Porra.find({ _id: { $in: ids } }).select("participants"),
+            Quiniela.find({ _id: { $in: ids } }).select("participants"),
+            Partit.find({ _id: { $in: ids } }).select("participants"),
+        ]);
+        const totes = [...porres, ...quinieles, ...partits];
+        const jugadors = new Set();
+        let mogut = 0;
+        totes.forEach((b) => {
+            (b.participants || []).forEach((p) => {
+                if (p.username) jugadors.add(p.username);
+                mogut += p.diners || 0;
+            });
+        });
+        return { count: totes.length, jugadors: jugadors.size, mogut };
+    }
+
+    const decided = apostesEnriquides.filter((a) => a.status !== "oberta");
+    const won = decided.filter((a) => a.status === "guanyada").length;
+    const balanc = apostesEnriquides.reduce((s, a) => {
+        if (a.status === "guanyada") return s + (a.net || 0);
+        if (a.status === "perduda") return s - (a.diners || 0);
+        return s;
+    }, 0);
+    return {
+        count: apostesEnriquides.length,
+        encertPct: decided.length ? (won / decided.length) * 100 : 0,
+        balanc,
+    };
 }
