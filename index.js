@@ -846,10 +846,15 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
 
         // 6. Actualització a la Base de Dades
         console.log("  💾 Actualitzant partit...");
+        // 🎯 GUANYADOR FINAL: en un empat (només possible a grups/individuals,
+        // els classificatoris exigeixen guanyador de penals) la selecció
+        // guanyadora per a les apostes és "Empat". Mantenim aquesta convenció
+        // idèntica a la branca d'aposta independent i a winningSelection().
+        const guanyadorFinal = guanyadorPartit || (isEmpat ? "Empat" : null);
         // Mongoose pot gestionar l'actualització de subdocuments directament
         partit.resultatEquip1 = equip1Resultat;
         partit.resultatEquip2 = equip2Resultat;
-        partit.guanyadorPartit = guanyadorPartit; // Guardem el guanyador (equip o null)
+        partit.guanyadorPartit = guanyadorFinal; // Guardem el guanyador (equip o "Empat")
         partit.estatPartit = "finalitzat";
 
         // ✅ SYNC APOSTA: Si hi ha aposta associada (o inferida), també l'actualitzem
@@ -864,12 +869,12 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
              await Partit.findByIdAndUpdate(targetApostaId, {
                  resultatEquip1: equip1Resultat,
                  resultatEquip2: equip2Resultat,
-                 guanyadorPartit: guanyadorPartit,
+                 guanyadorPartit: guanyadorFinal,
                  estatPartit: "finalitzat"
              });
 
              // 💰 REPARTIR RECOMPENSES
-             await distribuirRecompenses(targetApostaId, guanyadorPartit);
+             await distribuirRecompenses(targetApostaId, guanyadorFinal);
         }
         console.log("  ✅ Dades actualitzades localment");
 
@@ -892,6 +897,7 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
                 console.log("    - Guanyador:", guanyadorPartit);
 
                 // Guardem el resultat de la final
+                competicio.markModified('partits');
                 await competicio.save();
 
                 res.json({
@@ -922,7 +928,7 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
                     nextMatch.equip2 = guanyadorPartit;
                     console.log(`      -> Equip 2 set to ${guanyadorPartit}`);
                 }
-                nextMatch.estatPartit = "pendent"; 
+                nextMatch.estatPartit = "pendent";
             } else {
                 console.log("    - Match NO trobat. Creant-lo automàticament...");
                 const nouPartitRonda = {
@@ -931,7 +937,7 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
                     round: nextRound,
                     position: nextPosition,
                     grup: null,
-                    data: null, 
+                    data: null,
                     apostable: false,
                     estatPartit: "pendent",
                     resultatEquip1: null,
@@ -939,7 +945,46 @@ app.post("/partits/:partitId/resultat", authMiddleware, async (req, res) => {
                     guanyadorPartit: null
                 };
                 competicio.partits.push(nouPartitRonda);
+                nextMatch = competicio.partits[competicio.partits.length - 1];
                 console.log("    ✅ Pushed new match. Length:", competicio.partits.length);
+            }
+
+            // 🎲 Si el proper partit ja té els dos equips reals definits,
+            // assegurem que sigui apostable: creem la seva aposta (si no en té)
+            // o sincronitzem noms/colors (si ja existia amb placeholders).
+            const segEquip1 = nextMatch.equip1 || nextMatch.team1;
+            const segEquip2 = nextMatch.equip2 || nextMatch.team2;
+            const ambdosEquipsReals =
+                segEquip1 && segEquip2 &&
+                segEquip1.toString().trim() && segEquip2.toString().trim() &&
+                segEquip1 !== "Pendent" && segEquip2 !== "Pendent";
+
+            if (ambdosEquipsReals) {
+                if (!nextMatch.apostaId) {
+                    console.log("    🎲 Creant aposta apostable per al proper partit...");
+                    const equipsColor = new Map(
+                        (competicio.equips || []).map((e) => [e.nom, e.color])
+                    );
+                    const novaApostaId = await crearApostaPerPartit(
+                        {
+                            equip1: segEquip1,
+                            equip2: segEquip2,
+                            round: nextMatch.round,
+                            position: nextMatch.position,
+                            grup: nextMatch.grup,
+                            estatPartit: nextMatch.estatPartit,
+                            colorEquip1: equipsColor.get(segEquip1),
+                            colorEquip2: equipsColor.get(segEquip2),
+                        },
+                        competicio.nomCompeticio,
+                        req.user.username,
+                        req.user.id
+                    );
+                    if (novaApostaId) nextMatch.apostaId = novaApostaId;
+                } else {
+                    console.log("    🔄 Sincronitzant noms de l'aposta del proper partit...");
+                    await syncPartitAposta(nextMatch, competicio.nomCompeticio);
+                }
             }
         }
 
